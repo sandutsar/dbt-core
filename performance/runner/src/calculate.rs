@@ -68,27 +68,21 @@ mod tests {
             project_name: "detects 3 sigma".to_owned(),
         };
 
-        let measurement = Measurement {
-            command: "some command".to_owned(),
-            mean: 1.00,
-            stddev: 0.1,
-            median: 1.00,
-            user: 1.00,
-            system: 1.00,
-            min: 0.00,
-            max: 2.00,
-            times: vec![],
-        };
-
-        let baseline_metric = MetricModel {
-            metric: metric.clone(),
-            ts: Utc::now(),
-            measurement: measurement,
-        };
-
         let baseline = Baseline {
             version: Version::new(9, 9, 9),
-            models: vec![baseline_metric],
+            metric: metric,
+            ts: Utc::now(),
+            measurement: Measurement {
+                command: "some command".to_owned(),
+                mean: 1.00,
+                stddev: 0.1,
+                median: 1.00,
+                user: 1.00,
+                system: 1.00,
+                min: 0.00,
+                max: 2.00,
+                times: vec![],
+            },
         };
 
         let sample = Sample {
@@ -118,27 +112,21 @@ mod tests {
             project_name: "passes near 3 sigma".to_owned(),
         };
 
-        let measurement = Measurement {
-            command: "some command".to_owned(),
-            mean: 1.00,
-            stddev: 0.1,
-            median: 1.00,
-            user: 1.00,
-            system: 1.00,
-            min: 0.00,
-            max: 2.00,
-            times: vec![],
-        };
-
-        let baseline_metric = MetricModel {
-            metric: metric.clone(),
-            ts: Utc::now(),
-            measurement: measurement,
-        };
-
         let baseline = Baseline {
             version: Version::new(9, 9, 9),
-            models: vec![baseline_metric],
+            metric: metric,
+            ts: Utc::now(),
+            measurement: Measurement {
+                command: "some command".to_owned(),
+                mean: 1.00,
+                stddev: 0.1,
+                median: 1.00,
+                user: 1.00,
+                system: 1.00,
+                min: 0.00,
+                max: 2.00,
+                times: vec![],
+            },
         };
 
         let sample = Sample {
