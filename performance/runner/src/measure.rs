@@ -209,7 +209,7 @@ pub fn model<'a>(
     let baselines: Vec<Baseline> = measurements
         .into_iter()
         .map(|m| from_measurement(version, m, now))
-        .collect();
+        .collect::<Result<Vec<Baseline>, RunnerError>>()?;
 
     // write a file for each baseline measurement
     for model in &baselines {
@@ -239,21 +239,26 @@ pub fn model<'a>(
     Ok(baselines)
 }
 
+// baseline filenames are expected to encode the metric information
 fn from_measurement(
     version: Version,
     measurement: (PathBuf, Measurements),
     // forcing time to be provided so that uniformity of time stamps across a set of baselines is more explicit
     ts: DateTime<Utc>,
-) -> Baseline {
+) -> Result<Baseline, RunnerError> {
     let (path, measurements) = measurement;
-    // TODO fix unwraps
     // `file_name` is boop___proj.json. `file_stem` is boop___proj.
-    let filename = path.file_stem().unwrap();
-    let metric = Metric::from_str(&filename.to_string_lossy()).unwrap();
-    Baseline {
+    let filestem = path.file_stem().map_or_else(
+        || Err(IOError::BadFilestemError(path.clone())),
+        |stem| Ok(stem.to_string_lossy().to_string())
+    )?;
+
+    let metric = Metric::from_str(&filestem)?;
+
+    Ok(Baseline {
         version: version,
         metric: metric,
         ts: ts,
         measurement: measurements.results[0].clone(),
-    }
+    })
 }
