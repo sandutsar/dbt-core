@@ -19,10 +19,15 @@ jobs:
 
       # specifically checksout main so that when we're sampling on commits to
       # patch releases, we're using the latest runner code not whatever is in the working branch.
+      #
+      # the with clause should be commented out if you're working on the runner
+      # and want to see output from your code. it's pulling from main, not what you're
+      # working on.
       - name: Checkout
         uses: actions/checkout@v2
-        with:
-          ref: main
+        # TODO uncomment when done developing this.
+        # with:
+        #   ref: main
 
       # attempts to access a previously cached runner
       #
