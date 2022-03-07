@@ -1,6 +1,7 @@
 use crate::exceptions::RunnerError;
 use crate::measure;
 use crate::types::*;
+use chrono::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -94,18 +95,15 @@ mod tests {
             ts: Utc::now(),
         };
 
-        let calculations = calculate_regressions(
-            &[sample],
-            &[baseline],
+        let calculation = calculate_regression(
+            &sample,
+            &baseline,
             3.0, // 3 sigma
         );
 
-        let regressions: Vec<&Calculation> =
-            calculations.iter().filter(|calc| calc.regression).collect();
-
-        // expect one regression for the mean being outside the 3 sigma
-        println!("{:#?}", regressions);
-        assert_eq!(regressions.len(), 1);
+        // expect a regression for the mean being outside the 3 sigma
+        println!("{:#?}", calculation);
+        assert!(calculation.regression);
     }
 
     #[test]
@@ -138,18 +136,15 @@ mod tests {
             ts: Utc::now(),
         };
 
-        let calculations = calculate_regressions(
-            &[sample],
-            &[baseline],
+        let calculation = calculate_regression(
+            &sample,
+            &baseline,
             3.0, // 3 sigma
         );
 
-        let regressions: Vec<&Calculation> =
-            calculations.iter().filter(|calc| calc.regression).collect();
-
         // expect no regressions
-        println!("{:#?}", regressions);
-        assert!(regressions.is_empty());
+        println!("{:#?}", calculation);
+        assert!(!calculation.regression);
     }
 
     // The serializer and deserializer are custom implementations

@@ -1,10 +1,12 @@
-use crate::exceptions::RunnerError;
+use crate::exceptions::{IOError, RunnerError};
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
-use std::fmt::Display;
-use std::str::FromStr;
 use std::{cmp, fmt};
+use std::fmt::Display;
+use std::path::PathBuf;
+use std::str::FromStr;
+
 
 // `HyperfineCmd` defines a command that we want to measure with hyperfine
 #[derive(Debug, Clone)]
@@ -139,19 +141,27 @@ pub struct Sample {
 }
 
 impl Sample {
-    // TODO make these results not panics.
     pub fn from_measurement(
-        metric: Metric,
-        ts: DateTime<Utc>,
+        path: &PathBuf,
         measurement: &Measurement,
-    ) -> Sample {
+        ts: DateTime<Utc>
+    ) -> Result<Sample, RunnerError> {
+        // `file_name` is boop___proj.json. `file_stem` is boop___proj.
+        let filestem = path.file_stem().map_or_else(
+            || Err(IOError::BadFilestemError(path.clone())),
+            |stem| Ok(stem.to_string_lossy().to_string())
+        )?;
+
+        let metric = Metric::from_str(&filestem)?;
+
+        // TODO use result values not panics
         match &measurement.times[..] {
             [] => panic!("found a sample with no measurement"),
-            [x] => Sample {
+            [x] => Ok(Sample {
                 metric: metric,
                 value: *x,
                 ts: ts,
-            },
+            }),
             _ => panic!("found a sample with too many measurements!"),
         }
     }

@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::str::FromStr;
 
+
+// TODO these should not be defined here anymore. they need to be split at the github action level.
 // To add a new metric to the test suite, simply define it in this list
 static METRICS: [HyperfineCmd; 1] = [HyperfineCmd {
     name: "parse",
@@ -16,7 +18,7 @@ static METRICS: [HyperfineCmd; 1] = [HyperfineCmd {
     cmd: "dbt parse --no-version-check",
 }];
 
-// TODO this could have it's impure parts split out and tested.
+// TODO This function does too much. It could have its impure parts split out and tested.
 //
 // Given a directory, read all files in the directory and return each
 // filename with the deserialized json contents of that file.
@@ -145,7 +147,7 @@ pub fn take_samples(projects_dir: &PathBuf, out_dir: &PathBuf) -> Result<Vec<Sam
         let mut output_file = out_dir.clone();
         output_file.push(metric.filename());
 
-        // TODO we really want one run, not two. so we might not want to use hyperfine for taking samples.
+        // TODO we really want one run, not two. Right now the second is discarded. so we might not want to use hyperfine for taking samples.
         let status = run_hyperfine(&path, &command, hcmd.clone().prepare, 2, &output_file)
             .or_else(|e| Err(RunnerError::from(e)))?;
 
@@ -158,17 +160,13 @@ pub fn take_samples(projects_dir: &PathBuf, out_dir: &PathBuf) -> Result<Vec<Sam
     let samples = from_json_files::<Measurements>(out_dir)?
         .into_iter()
         .map(|(path, measurement)| {
-            // TODO fix unwraps
-            // `file_name` is boop___proj.json. `file_stem` is boop___proj.
-            let filename = path.file_stem().unwrap();
-            let metric = Metric::from_str(&filename.to_string_lossy().into_owned()).unwrap();
             Sample::from_measurement(
-                metric,
-                ts,
-                &measurement.results[0], // TODO do it safer
+                &path,
+                &measurement.results[0], // TODO if its empty it'll panic.
+                ts
             )
         })
-        .collect();
+        .collect::<Result<Vec<Sample>, RunnerError>>()?;
 
     Ok(samples)
 }
@@ -208,7 +206,10 @@ pub fn model<'a>(
     let now = Utc::now();
     let baselines: Vec<Baseline> = measurements
         .into_iter()
-        .map(|m| from_measurement(version, m, now))
+        .map(|m| {
+            let (path, measurement) = m;
+            from_measurement(version, path, measurement, now)
+        })
         .collect::<Result<Vec<Baseline>, RunnerError>>()?;
 
     // write a file for each baseline measurement
@@ -242,11 +243,11 @@ pub fn model<'a>(
 // baseline filenames are expected to encode the metric information
 fn from_measurement(
     version: Version,
-    measurement: (PathBuf, Measurements),
+    path: PathBuf,
+    measurements: Measurements,
     // forcing time to be provided so that uniformity of time stamps across a set of baselines is more explicit
     ts: DateTime<Utc>,
 ) -> Result<Baseline, RunnerError> {
-    let (path, measurements) = measurement;
     // `file_name` is boop___proj.json. `file_stem` is boop___proj.
     let filestem = path.file_stem().map_or_else(
         || Err(IOError::BadFilestemError(path.clone())),
