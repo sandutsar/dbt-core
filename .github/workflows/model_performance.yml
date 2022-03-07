@@ -11,7 +11,7 @@ env:
   RUNNER_CACHE_PATH: performance/runner/target/release/runner
 
 jobs:
-  build-runner:
+  latest-runner:
     name: Build or Fetch Performance Runner
     runs-on: ubuntu-latest
     env:
@@ -64,9 +64,9 @@ jobs:
 
   # run the performance measurements on the current or default branch
   model:
-    # depends on `build-runner` as a separate job so that failures in this job do not prevent
+    # depends on `latest-runner` as a separate job so that failures in this job do not prevent
     # a successfully tested and built binary from being cached.
-    needs: [build-runner]
+    needs: [latest-runner]
     name: Model a release
     runs-on: ubuntu-latest
     steps:
