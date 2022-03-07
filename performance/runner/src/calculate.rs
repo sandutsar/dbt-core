@@ -1,41 +1,29 @@
 use crate::exceptions::RunnerError;
 use crate::measure;
 use crate::types::*;
-use chrono::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-// TODO find an alternative to all this cloning
-// TODO is this the right place for the hashmap? probably not.
-fn calculate_regressions(
-    samples: &[Sample],
-    baselines: &[Baseline],
+// calculates a single regression for a matching sample-baseline pair.
+// does not validate that the sample metric and baseline metric match.
+fn calculate_regression(
+    sample: &Sample,
+    baseline: &Baseline,
     sigma: f64,
-) -> Vec<Calculation> {
-    let m_samples: HashMap<Metric, (f64, DateTime<Utc>)> = samples
-        .into_iter()
-        .map(|x| (x.metric.clone(), (x.value, x.ts)))
-        .collect();
+) -> Calculation {
+    let model = baseline.measurement.clone();
+    let threshold = model.mean + sigma * model.stddev;
 
-    baselines
-        .into_iter()
-        .filter_map(|baseline| {
-            let model = baseline.measurement.clone();
-            m_samples.get(&baseline.metric).map(|(value, ts)| {
-                let threshold = model.mean + sigma * model.stddev;
-                Calculation {
-                    version: baseline.version,
-                    metric: baseline.metric.clone(),
-                    regression: *value > threshold,
-                    ts: *ts,
-                    sigma: sigma,
-                    mean: model.mean,
-                    stddev: model.stddev,
-                    threshold: threshold,
-                }
-            })
-        })
-        .collect()
+    Calculation {
+        version: baseline.version,
+        metric: baseline.metric.clone(),
+        regression: sample.value > threshold,
+        ts: sample.ts.clone(),
+        sigma: sigma,
+        mean: model.mean,
+        stddev: model.stddev,
+        threshold: threshold,
+    }
 }
 
 // Top-level function. Given a path for the result directory, call the above
@@ -55,7 +43,21 @@ pub fn regressions(
     let samples: Vec<Sample> = measure::take_samples(projects_dir, tmp_dir)?;
 
     // calculate regressions with a 3 sigma threshold
-    Ok(calculate_regressions(&samples, &baselines, 3.0))
+    let m_samples: HashMap<Metric, Sample> = samples
+        .into_iter()
+        .map(|x| (x.metric.clone(), x))
+        .collect();
+
+    let calculations: Vec<Calculation> = baselines
+        .into_iter()
+        .filter_map(|baseline| {
+            m_samples.get(&baseline.metric).map(|sample| {
+                calculate_regression(&sample, &baseline, 3.0)
+            })
+        })
+        .collect();
+
+    Ok(calculations)
 }
 
 #[cfg(test)]
