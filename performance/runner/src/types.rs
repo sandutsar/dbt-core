@@ -2,9 +2,9 @@ use crate::exceptions::RunnerError;
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
-use std::{cmp, fmt};
 use std::fmt::Display;
 use std::str::FromStr;
+use std::{cmp, fmt};
 
 // `HyperfineCmd` defines a command that we want to measure with hyperfine
 #[derive(Debug, Clone)]
@@ -122,7 +122,6 @@ pub struct Baseline {
     pub ts: DateTime<Utc>,
     pub measurement: Measurement,
 }
-
 
 impl Ord for Baseline {
     fn cmp(&self, other: &Self) -> cmp::Ordering {

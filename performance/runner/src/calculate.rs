@@ -6,7 +6,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 // TODO find an alternative to all this cloning
-fn calculate_regressions(samples: &[Sample], baselines: &[Baseline], sigma: f64) -> Vec<Calculation> {
+fn calculate_regressions(
+    samples: &[Sample],
+    baselines: &[Baseline],
+    sigma: f64,
+) -> Vec<Calculation> {
     let m_samples: HashMap<Metric, (f64, DateTime<Utc>)> = samples
         .into_iter()
         .map(|x| (x.metric.clone(), (x.value, x.ts)))
