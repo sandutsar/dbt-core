@@ -11,16 +11,22 @@ env:
 
 jobs:
   latest-runner:
-    name: Compare Performance Samples
+    name: Build or Fetch Performance Runner
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: "-D warnings"
     steps:
 
+      # specifically checksout main so that when we're sampling on commits to
+      # patch releases, we're using the latest runner code not whatever is in the working branch.
       - name: Checkout
         uses: actions/checkout@v2
+        with:
+          ref: main
 
       # attempts to access a previously cached runner
+      #
+      # unless you're developing the runner, it should be in the cache.
       - uses: actions/cache@v2
         id: cache
         with:
@@ -60,6 +66,18 @@ jobs:
           command: build
           args: --release --manifest-path performance/runner/Cargo.toml
       # the cache action automatically caches this binary at the end of the job
+
+  sample:
+    # depends on `latest-runner` as a separate job so that failures in this job do not prevent
+    # a successfully tested and built binary from being cached. Also so we can checkout dbt
+    # from THIS branch not main like we want for the runner.
+    needs: [latest-runner]
+    name: Compare Performance Samples
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v2
 
       - name: Setup Python
         uses: actions/setup-python@v2.2.2
