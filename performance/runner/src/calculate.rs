@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 // TODO find an alternative to all this cloning
+// TODO is this the right place for the hashmap? probably not.
 fn calculate_regressions(
     samples: &[Sample],
     baselines: &[Baseline],
@@ -24,7 +25,7 @@ fn calculate_regressions(
                 let threshold = model.mean + sigma * model.stddev;
                 Calculation {
                     version: baseline.version,
-                    metric: baseline.metric,
+                    metric: baseline.metric.clone(),
                     regression: *value > threshold,
                     ts: *ts,
                     sigma: sigma,
@@ -70,7 +71,7 @@ mod tests {
 
         let baseline = Baseline {
             version: Version::new(9, 9, 9),
-            metric: metric,
+            metric: metric.clone(),
             ts: Utc::now(),
             measurement: Measurement {
                 command: "some command".to_owned(),
@@ -86,14 +87,14 @@ mod tests {
         };
 
         let sample = Sample {
-            metric: metric.clone(),
+            metric: metric,
             value: 1.31,
             ts: Utc::now(),
         };
 
         let calculations = calculate_regressions(
             &[sample],
-            baseline,
+            &[baseline],
             3.0, // 3 sigma
         );
 
@@ -114,7 +115,7 @@ mod tests {
 
         let baseline = Baseline {
             version: Version::new(9, 9, 9),
-            metric: metric,
+            metric: metric.clone(),
             ts: Utc::now(),
             measurement: Measurement {
                 command: "some command".to_owned(),
@@ -130,14 +131,14 @@ mod tests {
         };
 
         let sample = Sample {
-            metric: metric.clone(),
+            metric: metric,
             value: 1.29,
             ts: Utc::now(),
         };
 
         let calculations = calculate_regressions(
             &[sample],
-            baseline,
+            &[baseline],
             3.0, // 3 sigma
         );
 

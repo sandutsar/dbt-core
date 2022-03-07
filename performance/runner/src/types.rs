@@ -115,7 +115,7 @@ impl Version {
 
 // A model for a single project-command pair
 // modeling a version at release time will populate a directory with many of these
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Baseline {
     pub version: Version,
     pub metric: Metric,
@@ -123,9 +123,9 @@ pub struct Baseline {
     pub measurement: Measurement,
 }
 
-impl Ord for Baseline {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.version.cmp(other.version)
+impl PartialOrd for Baseline {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.version.cmp(&other.version))
     }
 }
 

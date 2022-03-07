@@ -208,8 +208,8 @@ pub fn model<'a>(
     let now = Utc::now();
     let baselines: Vec<Baseline> = measurements
         .into_iter()
-        .map(|m| from_measurement(version, m, Some(now)))
-        .collect::<Result<Vec<Baseline>>, RunnerError>()?;
+        .map(|m| from_measurement(version, m, now))
+        .collect();
 
     // write a file for each baseline measurement
     for model in &baselines {
@@ -228,7 +228,7 @@ pub fn model<'a>(
 
         // get the serialized string
         let s =
-            serde_json::to_string(&baseline).or_else(|e| Err(RunnerError::SerializationErr(e)))?;
+            serde_json::to_string(&model).or_else(|e| Err(RunnerError::SerializationErr(e)))?;
 
         // TODO writing files in _this function_ isn't the most graceful way organize the code.
         // write the newly modeled baseline to the above path
@@ -236,14 +236,15 @@ pub fn model<'a>(
             .or_else(|e| Err(IOError::WriteErr(out_file.clone(), Some(e))))?;
     }
 
-    Ok(baseline)
+    Ok(baselines)
 }
 
 fn from_measurement(
     version: Version,
     measurement: (PathBuf, Measurements),
-    ts: Option<DateTime<Utc>>,
-) -> Result<Baseline, RunnerError> {
+    // forcing time to be provided so that uniformity of time stamps across a set of baselines is more explicit
+    ts: DateTime<Utc>,
+) -> Baseline {
     let (path, measurements) = measurement;
     // TODO fix unwraps
     // `file_name` is boop___proj.json. `file_stem` is boop___proj.
@@ -252,17 +253,7 @@ fn from_measurement(
     Baseline {
         version: version,
         metric: metric,
-        // uses the provided timestamp for every entry, or the current time if None.
-        ts: ts.unwrap_or(Utc::now()),
-        measurement: measurements.results[0],
+        ts: ts,
+        measurement: measurements.results[0].clone(),
     }
-
-    // if models.is_empty() {
-    //     Err(RunnerError::BaselineWithNoModelsErr())
-    // } else {
-    //     Ok(Baseline {
-    //         version: version,
-    //         models: models,
-    //     })
-    // }
 }
