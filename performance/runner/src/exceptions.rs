@@ -46,8 +46,6 @@ pub enum RunnerError {
     RunnerIOError(IOError),
     #[error("HyperfineNonZeroExitCode: Hyperfine child process exited with non-zero exit code: {}", .0)]
     HyperfineNonZeroExitCode(i32),
-    #[error("BaselineWithNoModelsErr: Cannot create a baseline from zero models.")]
-    BaselineWithNoModelsErr(),
 }
 
 impl From<IOError> for RunnerError {

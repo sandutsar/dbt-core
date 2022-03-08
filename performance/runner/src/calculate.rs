@@ -1,7 +1,6 @@
 use crate::exceptions::RunnerError;
 use crate::measure;
 use crate::types::*;
-use chrono::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -58,6 +57,7 @@ pub fn regressions(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::prelude::*;
 
     #[test]
     fn detects_3sigma_regression() {
