@@ -98,7 +98,12 @@ fn get_projects<'a>(
 pub fn latest_version_from(dir: &PathBuf) -> Result<Version, RunnerError> {
     let versions = all_dirs_in(dir)?
         .into_iter()
-        .map(|d| Version::from_str(&d.display().to_string()))
+        // this line is a little opaque but it's just converting OsStr -> String with options along the way.
+        .filter_map(|d| {
+            d.file_name()
+                .and_then(|fname| fname.to_str().map(|x| x.to_string()))
+        })
+        .map(|fname| Version::from_str(&fname))
         .collect::<Result<Vec<Version>, RunnerError>>()?;
 
     versions
