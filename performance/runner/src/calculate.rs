@@ -43,6 +43,11 @@ pub fn regressions(
         .map(|(_, x)| x)
         .collect();
 
+    // check that we have at least one baseline
+    if baselines.is_empty() {
+        return Err(RunnerError::NoVersionedBaselineData(baseline_dir.clone()));
+    }
+
     let samples: Vec<Sample> = fs::take_samples(projects_dir, tmp_dir)?;
 
     // turn samples into a map so they can be easily matched to baseline data
