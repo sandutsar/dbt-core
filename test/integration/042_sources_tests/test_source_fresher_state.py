@@ -12,7 +12,7 @@ from dbt.exceptions import CompilationException
 class TestRunResultsState(DBTIntegrationTest):
     @property
     def schema(self):
-        return "run_results_state_062"
+        return "source_fresher_state_062"
 
     @property
     def models(self):
@@ -46,86 +46,80 @@ class TestRunResultsState(DBTIntegrationTest):
         os.makedirs('state')
         shutil.copyfile('target/manifest.json', 'state/manifest.json')
         shutil.copyfile('target/run_results.json', 'state/run_results.json')
+        shutil.copyfile('target/sources.json', 'state/sources.json')
 
+    # TODO: upload a seed file to serve as the source and run source freshness on it
+    # TODO: move the sources.json to a previous state folder
     def setUp(self):
         super().setUp()
-        self.run_dbt(['build'])
+        self.run_dbt(['source', 'freshness'])
         self.copy_state()
     
     def rebuild_run_dbt(self, expect_pass=True):
         shutil.rmtree('./state')
-        self.run_dbt(['build'], expect_pass=expect_pass)
+        self.run_dbt(['source', 'freshness'], expect_pass=expect_pass)
         self.copy_state()
 
     @use_profile('postgres')
-    def test_postgres_seed_run_results_state(self):
+    def test_postgres_run_source_fresher_state(self):
+        results = self.run_dbt(['run', '--select', 'source_status:fresher+', '--state', './state'], expect_pass=True)
+        assert len(results) == 0
+
+        # clear state and rerun upstream view model to test + operator
         shutil.rmtree('./state')
-        self.run_dbt(['seed'])
+        self.run_dbt(['run', '--select', 'view_model'], expect_pass=True)
         self.copy_state()
-        results = self.run_dbt(['ls', '--resource-type', 'seed', '--select', 'result:success', '--state', './state'], expect_pass=True)
-        assert len(results) == 1
-        assert results[0] == 'test.seed'
+        results = self.run_dbt(['run', '--select', 'result:success+', '--state', './state'], expect_pass=True)
+        assert len(results) == 2
+        assert results[0].node.name == 'view_model'
+        assert results[1].node.name == 'table_model'
 
-        results = self.run_dbt(['ls', '--select', 'result:success', '--state', './state'])
-        assert len(results) == 1
-        assert results[0] == 'test.seed'
-
-        results = self.run_dbt(['ls', '--select', 'result:success+', '--state', './state'])
-        assert len(results) == 7
-        assert set(results) == {'test.seed', 'test.table_model', 'test.view_model', 'test.ephemeral_model', 'test.not_null_view_model_id', 'test.unique_view_model_id', 'exposure:test.my_exposure'}
-
-        with open('seeds/seed.csv') as fp:
+        # check we are starting from a place with 0 errors
+        results = self.run_dbt(['run', '--select', 'result:error', '--state', './state'])
+        assert len(results) == 0
+        
+        # force an error in the view model to test error and skipped states
+        with open('models/view_model.sql') as fp:
             fp.readline()
             newline = fp.newlines
-        with open('seeds/seed.csv', 'a') as fp:
-            fp.write(f'\"\'\'3,carl{newline}')
+
+        with open('models/view_model.sql', 'w') as fp:
+            fp.write(newline)
+            fp.write("select * from forced_error")
+            fp.write(newline)
+        
         shutil.rmtree('./state')
-        self.run_dbt(['seed'], expect_pass=False)
+        self.run_dbt(['run'], expect_pass=False)
         self.copy_state()
 
-        results = self.run_dbt(['ls', '--resource-type', 'seed', '--select', 'result:error', '--state', './state'], expect_pass=True)
+        # test single result selector on error
+        results = self.run_dbt(['run', '--select', 'result:error', '--state', './state'], expect_pass=False)
         assert len(results) == 1
-        assert results[0] == 'test.seed'
+        assert results[0].node.name == 'view_model'
+        
+        # test + operator selection on error
+        results = self.run_dbt(['run', '--select', 'result:error+', '--state', './state'], expect_pass=False)
+        assert len(results) == 2
+        assert results[0].node.name == 'view_model'
+        assert results[1].node.name == 'table_model'
 
-        results = self.run_dbt(['ls', '--select', 'result:error', '--state', './state'])
+        # single result selector on skipped. Expect this to pass becase underlying view already defined above
+        results = self.run_dbt(['run', '--select', 'result:skipped', '--state', './state'], expect_pass=True)
         assert len(results) == 1
-        assert results[0] == 'test.seed'
+        assert results[0].node.name == 'table_model'
 
-        results = self.run_dbt(['ls', '--select', 'result:error+', '--state', './state'])
-        assert len(results) == 7
-        assert set(results) == {'test.seed', 'test.table_model', 'test.view_model', 'test.ephemeral_model', 'test.not_null_view_model_id', 'test.unique_view_model_id', 'exposure:test.my_exposure'}
-
-
-        with open('seeds/seed.csv') as fp:
-            fp.readline()
-            newline = fp.newlines
-        with open('seeds/seed.csv', 'a') as fp:
-            # assume each line is ~2 bytes + len(name)
-            target_size = 1*1024*1024
-            line_size = 64
-
-            num_lines = target_size // line_size
-
-            maxlines = num_lines + 4
-
-            for idx in range(4, maxlines):
-                value = ''.join(random.choices(string.ascii_letters, k=62))
-                fp.write(f'{idx},{value}{newline}')
+        # add a downstream model that depends on table_model for skipped+ selector
+        with open('models/table_model_downstream.sql', 'w') as fp:
+            fp.write("select * from {{ref('table_model')}}")
+        
         shutil.rmtree('./state')
-        self.run_dbt(['seed'], expect_pass=False)
+        self.run_dbt(['run'], expect_pass=False)
         self.copy_state()
 
-        results = self.run_dbt(['ls', '--resource-type', 'seed', '--select', 'result:error', '--state', './state'], expect_pass=True)
-        assert len(results) == 1
-        assert results[0] == 'test.seed'
-
-        results = self.run_dbt(['ls', '--select', 'result:error', '--state', './state'])
-        assert len(results) == 1
-        assert results[0] == 'test.seed'
-
-        results = self.run_dbt(['ls', '--select', 'result:error+', '--state', './state'])
-        assert len(results) == 7
-        assert set(results) == {'test.seed', 'test.table_model', 'test.view_model', 'test.ephemeral_model', 'test.not_null_view_model_id', 'test.unique_view_model_id', 'exposure:test.my_exposure'}
+        results = self.run_dbt(['run', '--select', 'result:skipped+', '--state', './state'], expect_pass=True)
+        assert len(results) == 2
+        assert results[0].node.name == 'table_model'
+        assert results[1].node.name == 'table_model_downstream'
 
     @use_profile('postgres')
     def test_postgres_build_run_results_state(self):
@@ -215,68 +209,6 @@ class TestRunResultsState(DBTIntegrationTest):
         assert len(results) == 2
         assert set(results) == {'test.table_model', 'test.unique_view_model_id'}
 
-    @use_profile('postgres')
-    def test_postgres_run_run_results_state(self):
-        results = self.run_dbt(['run', '--select', 'result:success', '--state', './state'], expect_pass=True)
-        assert len(results) == 2
-        assert results[0].node.name == 'view_model'
-        assert results[1].node.name == 'table_model'
-        
-        # clear state and rerun upstream view model to test + operator
-        shutil.rmtree('./state')
-        self.run_dbt(['run', '--select', 'view_model'], expect_pass=True)
-        self.copy_state()
-        results = self.run_dbt(['run', '--select', 'result:success+', '--state', './state'], expect_pass=True)
-        assert len(results) == 2
-        assert results[0].node.name == 'view_model'
-        assert results[1].node.name == 'table_model'
-
-        # check we are starting from a place with 0 errors
-        results = self.run_dbt(['run', '--select', 'result:error', '--state', './state'])
-        assert len(results) == 0
-        
-        # force an error in the view model to test error and skipped states
-        with open('models/view_model.sql') as fp:
-            fp.readline()
-            newline = fp.newlines
-
-        with open('models/view_model.sql', 'w') as fp:
-            fp.write(newline)
-            fp.write("select * from forced_error")
-            fp.write(newline)
-        
-        shutil.rmtree('./state')
-        self.run_dbt(['run'], expect_pass=False)
-        self.copy_state()
-
-        # test single result selector on error
-        results = self.run_dbt(['run', '--select', 'result:error', '--state', './state'], expect_pass=False)
-        assert len(results) == 1
-        assert results[0].node.name == 'view_model'
-        
-        # test + operator selection on error
-        results = self.run_dbt(['run', '--select', 'result:error+', '--state', './state'], expect_pass=False)
-        assert len(results) == 2
-        assert results[0].node.name == 'view_model'
-        assert results[1].node.name == 'table_model'
-
-        # single result selector on skipped. Expect this to pass becase underlying view already defined above
-        results = self.run_dbt(['run', '--select', 'result:skipped', '--state', './state'], expect_pass=True)
-        assert len(results) == 1
-        assert results[0].node.name == 'table_model'
-
-        # add a downstream model that depends on table_model for skipped+ selector
-        with open('models/table_model_downstream.sql', 'w') as fp:
-            fp.write("select * from {{ref('table_model')}}")
-        
-        shutil.rmtree('./state')
-        self.run_dbt(['run'], expect_pass=False)
-        self.copy_state()
-
-        results = self.run_dbt(['run', '--select', 'result:skipped+', '--state', './state'], expect_pass=True)
-        assert len(results) == 2
-        assert results[0].node.name == 'table_model'
-        assert results[1].node.name == 'table_model_downstream'
     
     
     @use_profile('postgres')
