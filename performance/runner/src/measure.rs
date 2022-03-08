@@ -148,9 +148,6 @@ pub fn take_samples(projects_dir: &PathBuf, out_dir: &PathBuf) -> Result<Vec<Sam
         let mut output_file = out_dir.clone();
         output_file.push(metric.filename());
 
-        print!("***************************");
-        print!("{}", output_file.to_string_lossy().into_owned());
-
         // TODO we really want one run, not two. Right now the second is discarded. so we might not want to use hyperfine for taking samples.
         let status = run_hyperfine(&path, &command, hcmd.clone().prepare, 2, &output_file)
             .or_else(|e| Err(RunnerError::from(e)))?;

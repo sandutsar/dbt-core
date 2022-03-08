@@ -161,6 +161,12 @@ impl Sample {
                 value: *x,
                 ts: ts,
             }),
+            // TODO this is only while we're taking two runs at a time. should be one.
+            [x, _] => Ok(Sample {
+                metric: metric,
+                value: *x,
+                ts: ts,
+            }),
             _ => panic!("found a sample with too many measurements!"),
         }
     }
