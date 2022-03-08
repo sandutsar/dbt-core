@@ -45,13 +45,17 @@ pub fn regressions(
 
     let samples: Vec<Sample> = fs::take_samples(projects_dir, tmp_dir)?;
 
-    // calculate regressions with a 3 sigma threshold
+    // turn samples into a map so they can be easily matched to baseline data
     let m_samples: HashMap<Metric, Sample> =
         samples.into_iter().map(|x| (x.metric.clone(), x)).collect();
 
+    // match all baseline metrics to samples taken and calculate regressions with a 3 sigma threshold
     let calculations: Vec<Calculation> = baselines
         .into_iter()
         .map(|baseline| {
+            println!("*********************************");
+            println!("baseline: {:?}", baseline.clone());
+            println!("get: {:?}", m_samples.get(&baseline.metric).clone());
             m_samples
                 .get(&baseline.metric)
                 .ok_or_else(|| RunnerError::BaselineMetricNotSampled(baseline.metric.clone()))
