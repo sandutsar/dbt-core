@@ -14,7 +14,7 @@ from test.integration.base import DBTIntegrationTest, use_profile, AnyFloat, \
 class BaseSourcesTest(DBTIntegrationTest):
     @property
     def schema(self):
-        return "sources_042"
+        return "sources_fresher_state_042"
 
     @property
     def models(self):
@@ -290,6 +290,7 @@ class TestSourceFreshness(SuccessfulSourcesTest):
             }
         ])
 
+     # TODO: move the sources.json to a previous state folder
     def _run_source_freshness(self):
         # test_source.test_table should have a loaded_at field of `updated_at`
         # and a freshness of warn_after: 10 hours, error_after: 18 hours
@@ -365,7 +366,7 @@ class TestSourceFreshness(SuccessfulSourcesTest):
 #         shutil.copyfile('target/sources.json', 'state/sources.json')
 
 #     # TODO: upload a seed file to serve as the source and run source freshness on it
-#     # TODO: move the sources.json to a previous state folder
+#    
 #     def setUp(self):
 #         super().setUp()
 #         self.run_dbt(['source', 'freshness'])
