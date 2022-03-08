@@ -30,8 +30,14 @@ pub fn regressions(
     projects_dir: &PathBuf,
     tmp_dir: &PathBuf,
 ) -> Result<Vec<Calculation>, RunnerError> {
-    // TODO right now we're assuming this path is pointing to the versioned sub directory. that logic hasn't been written yet.
-    // there should be a function that reads in all the versioned directory names, and picks the best fit.
+    // finds the latest version availble in the baseline directory
+    let latest_version = fs::latest_version_from(baseline_dir)?;
+
+    // the baseline we want to target is the latest one available in this branch
+    let mut target_baseline_dir = baseline_dir.clone();
+    target_baseline_dir.push(latest_version.to_string());
+
+    // these are all the metrics for all available baselines from the target version
     let baselines: Vec<Baseline> = fs::from_json_files::<Baseline>(Path::new(&baseline_dir))?
         .into_iter()
         .map(|(_, x)| x)

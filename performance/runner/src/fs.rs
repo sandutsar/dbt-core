@@ -91,16 +91,20 @@ fn get_projects<'a>(
     Ok(results)
 }
 
-fn latest_version_from(baseline_dir: &PathBuf) -> Result<Version, RunnerError> {
-    let versions = all_dirs_in(baseline_dir)?
+// reads directory names under this directory and converts their names to sem-ver versions.
+// returns the latest version of the set.
+//
+// this is used to identify which baseline version we should be targeting to compare samples against.
+pub fn latest_version_from(dir: &PathBuf) -> Result<Version, RunnerError> {
+    let versions = all_dirs_in(dir)?
         .into_iter()
-        .map(|dir| Version::from_str(&dir.display().to_string()))
+        .map(|d| Version::from_str(&d.display().to_string()))
         .collect::<Result<Vec<Version>, RunnerError>>()?;
 
     versions
         .into_iter()
         .reduce(cmp::max)
-        .ok_or_else(|| RunnerError::NoVersionedBaselineData(baseline_dir.clone()))
+        .ok_or_else(|| RunnerError::NoVersionedBaselineData(dir.clone()))
 }
 
 fn all_dirs_in(dir: &PathBuf) -> Result<Vec<PathBuf>, IOError> {
