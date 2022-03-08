@@ -38,14 +38,17 @@ pub fn regressions(
     target_baseline_dir.push(latest_version.to_string());
 
     // these are all the metrics for all available baselines from the target version
-    let baselines: Vec<Baseline> = fs::from_json_files::<Baseline>(Path::new(&baseline_dir))?
-        .into_iter()
-        .map(|(_, x)| x)
-        .collect();
+    let baselines: Vec<Baseline> =
+        fs::from_json_files::<Baseline>(Path::new(&target_baseline_dir))?
+            .into_iter()
+            .map(|(_, x)| x)
+            .collect();
 
     // check that we have at least one baseline
     if baselines.is_empty() {
-        return Err(RunnerError::NoVersionedBaselineData(baseline_dir.clone()));
+        return Err(RunnerError::NoVersionedBaselineData(
+            target_baseline_dir.clone(),
+        ));
     }
 
     let samples: Vec<Sample> = fs::take_samples(projects_dir, tmp_dir)?;
@@ -58,9 +61,6 @@ pub fn regressions(
     let calculations: Vec<Calculation> = baselines
         .into_iter()
         .map(|baseline| {
-            println!("*********************************");
-            println!("baseline: {:?}", baseline.clone());
-            println!("get: {:?}", m_samples.get(&baseline.metric).clone());
             m_samples
                 .get(&baseline.metric)
                 .ok_or_else(|| RunnerError::BaselineMetricNotSampled(baseline.metric.clone()))
