@@ -92,12 +92,22 @@ fn get_projects<'a>(
 }
 
 fn latest_version_from(baseline_dir: &PathBuf) -> Result<Version, RunnerError> {
-    let foo: Vec<DirEntry> = fs::read_dir(baseline_dir)
-        .or_else(|e| Err(IOError::ReadErr(baseline_dir.clone(), Some(e))))?
-        .collect::<Result<Vec<DirEntry>, io::Error>>()
-        .or_else(|e| Err(IOError::ReadIterErr(baseline_dir.clone(), Some(e))))?;
+    let versions = all_dirs_in(baseline_dir)?
+        .into_iter()
+        .map(|dir| Version::from_str(&dir.display().to_string()))
+        .collect::<Result<Vec<Version>, RunnerError>>()?;
 
-    let versions: Vec<Version> = foo
+    versions
+        .into_iter()
+        .reduce(cmp::max)
+        .ok_or_else(|| RunnerError::NoVersionedBaselineData(baseline_dir.clone()))
+}
+
+fn all_dirs_in(dir: &PathBuf) -> Result<Vec<PathBuf>, IOError> {
+    Ok(fs::read_dir(dir)
+        .or_else(|e| Err(IOError::ReadErr(dir.clone(), Some(e))))?
+        .collect::<Result<Vec<DirEntry>, io::Error>>()
+        .or_else(|e| Err(IOError::ReadIterErr(dir.clone(), Some(e))))?
         .into_iter()
         .filter_map(|d| {
             let path = d.path();
@@ -107,13 +117,7 @@ fn latest_version_from(baseline_dir: &PathBuf) -> Result<Version, RunnerError> {
                 None
             }
         })
-        .map(|dir| Version::from_str(&dir.display().to_string()))
-        .collect::<Result<Vec<Version>, RunnerError>>()?;
-
-    versions
-        .into_iter()
-        .reduce(cmp::max)
-        .ok_or_else(|| RunnerError::NoVersionedBaselineData(baseline_dir.clone()))
+        .collect())
 }
 
 // TODO can we call hyperfine as a rust library?
