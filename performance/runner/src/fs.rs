@@ -55,6 +55,8 @@ pub fn from_json_files<T: DeserializeOwned>(
         .collect()
 }
 
+// TODO this should read the commands to run on each project from the project definitions themselves
+// not from a hard coded array in this file.
 fn get_projects<'a>(
     projects_directory: &PathBuf,
 ) -> Result<Vec<(PathBuf, String, HyperfineCmd<'a>)>, IOError> {
