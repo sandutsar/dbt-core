@@ -192,3 +192,26 @@ impl Display for Version {
         write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn assert_version_order() {
+        // for each pair, assert that the left one is bigger than the right one
+        let pairs = [
+            ((1, 0, 0), (0, 20, 0)),
+            ((1, 0, 1), (1, 0, 0)),
+            ((1, 0, 9), (0, 20, 0)),
+            ((1, 0, 9), (0, 0, 4)),
+            ((1, 1, 0), (1, 0, 99)),
+        ];
+
+        for (big, small) in pairs {
+            let bigv = Version::new(big.0, big.1, big.2);
+            let smallv = Version::new(small.0, small.1, small.2);
+            assert!(cmp::max(bigv, smallv) == bigv)
+        }
+    }
+}
