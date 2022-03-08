@@ -61,7 +61,7 @@ fn get_projects<'a>(
     let entries = fs::read_dir(projects_directory)
         .or_else(|e| Err(IOError::ReadErr(projects_directory.to_path_buf(), Some(e))))?;
 
-    let unflattened_results = entries
+    let results: Vec<(PathBuf, String, HyperfineCmd<'a>)> = entries
         .map(|entry| {
             let path = entry
                 .or_else(|e| Err(IOError::ReadErr(projects_directory.to_path_buf(), Some(e))))?
@@ -77,6 +77,7 @@ fn get_projects<'a>(
                 .to_owned();
 
             // each project-metric pair we will run
+            // TODO maybe not every command should run on every project. maybe have these defined as files in the project directories?
             let pairs = METRICS
                 .iter()
                 .map(|metric| (path.clone(), project_name.clone(), metric.clone()))
@@ -84,9 +85,10 @@ fn get_projects<'a>(
 
             Ok(pairs)
         })
-        .collect::<Result<Vec<Vec<(PathBuf, String, HyperfineCmd<'a>)>>, IOError>>()?;
+        .collect::<Result<Vec<Vec<(PathBuf, String, HyperfineCmd<'a>)>>, IOError>>()?
+        .concat();
 
-    Ok(unflattened_results.concat())
+    Ok(results)
 }
 
 // TODO can we call hyperfine as a rust library?
