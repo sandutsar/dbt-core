@@ -2,11 +2,10 @@ use crate::exceptions::{IOError, RunnerError};
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
-use std::{cmp, fmt};
 use std::fmt::Display;
 use std::path::PathBuf;
 use std::str::FromStr;
-
+use std::{cmp, fmt};
 
 // `HyperfineCmd` defines a command that we want to measure with hyperfine
 #[derive(Debug, Clone)]
@@ -144,12 +143,12 @@ impl Sample {
     pub fn from_measurement(
         path: &PathBuf,
         measurement: &Measurement,
-        ts: DateTime<Utc>
+        ts: DateTime<Utc>,
     ) -> Result<Sample, RunnerError> {
         // `file_name` is boop___proj.json. `file_stem` is boop___proj.
         let filestem = path.file_stem().map_or_else(
             || Err(IOError::BadFilestemError(path.clone())),
-            |stem| Ok(stem.to_string_lossy().to_string())
+            |stem| Ok(stem.to_string_lossy().to_string()),
         )?;
 
         let metric = Metric::from_str(&filestem)?;

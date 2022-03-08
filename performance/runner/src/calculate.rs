@@ -7,11 +7,7 @@ use std::path::{Path, PathBuf};
 
 // calculates a single regression for a matching sample-baseline pair.
 // does not validate that the sample metric and baseline metric match.
-fn calculate_regression(
-    sample: &Sample,
-    baseline: &Baseline,
-    sigma: f64,
-) -> Calculation {
+fn calculate_regression(sample: &Sample, baseline: &Baseline, sigma: f64) -> Calculation {
     let model = baseline.measurement.clone();
     let threshold = model.mean + sigma * model.stddev;
 
@@ -44,17 +40,15 @@ pub fn regressions(
     let samples: Vec<Sample> = measure::take_samples(projects_dir, tmp_dir)?;
 
     // calculate regressions with a 3 sigma threshold
-    let m_samples: HashMap<Metric, Sample> = samples
-        .into_iter()
-        .map(|x| (x.metric.clone(), x))
-        .collect();
+    let m_samples: HashMap<Metric, Sample> =
+        samples.into_iter().map(|x| (x.metric.clone(), x)).collect();
 
     let calculations: Vec<Calculation> = baselines
         .into_iter()
         .filter_map(|baseline| {
-            m_samples.get(&baseline.metric).map(|sample| {
-                calculate_regression(&sample, &baseline, 3.0)
-            })
+            m_samples
+                .get(&baseline.metric)
+                .map(|sample| calculate_regression(&sample, &baseline, 3.0))
         })
         .collect();
 
@@ -96,9 +90,7 @@ mod tests {
         };
 
         let calculation = calculate_regression(
-            &sample,
-            &baseline,
-            3.0, // 3 sigma
+            &sample, &baseline, 3.0, // 3 sigma
         );
 
         // expect a regression for the mean being outside the 3 sigma
@@ -137,9 +129,7 @@ mod tests {
         };
 
         let calculation = calculate_regression(
-            &sample,
-            &baseline,
-            3.0, // 3 sigma
+            &sample, &baseline, 3.0, // 3 sigma
         );
 
         // expect no regressions

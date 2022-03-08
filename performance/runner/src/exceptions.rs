@@ -24,7 +24,7 @@ pub enum IOError {
     #[error("CannotRecreateTempDirErr: attempted to delete and recreate temp dir at path {}\nOriginating Exception: {}", .0.to_string_lossy().into_owned(), .1)]
     CannotRecreateTempDirErr(PathBuf, io::Error),
     #[error("BadFilestemError: failed to read the filestem from path {}", .0.to_string_lossy().into_owned())]
-    BadFilestemError(PathBuf)
+    BadFilestemError(PathBuf),
 }
 
 // Custom Error messages for the error states we could encounter

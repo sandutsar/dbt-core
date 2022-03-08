@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::str::FromStr;
 
-
 // TODO these should not be defined here anymore. they need to be split at the github action level.
 // To add a new metric to the test suite, simply define it in this list
 static METRICS: [HyperfineCmd; 1] = [HyperfineCmd {
@@ -163,7 +162,7 @@ pub fn take_samples(projects_dir: &PathBuf, out_dir: &PathBuf) -> Result<Vec<Sam
             Sample::from_measurement(
                 &path,
                 &measurement.results[0], // TODO if its empty it'll panic.
-                ts
+                ts,
             )
         })
         .collect::<Result<Vec<Sample>, RunnerError>>()?;
@@ -228,8 +227,7 @@ pub fn model<'a>(
         out_file.set_extension("json");
 
         // get the serialized string
-        let s =
-            serde_json::to_string(&model).or_else(|e| Err(RunnerError::SerializationErr(e)))?;
+        let s = serde_json::to_string(&model).or_else(|e| Err(RunnerError::SerializationErr(e)))?;
 
         // TODO writing files in _this function_ isn't the most graceful way organize the code.
         // write the newly modeled baseline to the above path
@@ -251,7 +249,7 @@ fn from_measurement(
     // `file_name` is boop___proj.json. `file_stem` is boop___proj.
     let filestem = path.file_stem().map_or_else(
         || Err(IOError::BadFilestemError(path.clone())),
-        |stem| Ok(stem.to_string_lossy().to_string())
+        |stem| Ok(stem.to_string_lossy().to_string()),
     )?;
 
     let metric = Metric::from_str(&filestem)?;
