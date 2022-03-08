@@ -1,3 +1,4 @@
+use crate::types::Metric;
 use std::io;
 #[cfg(test)]
 use std::path::Path;
@@ -48,12 +49,10 @@ pub enum RunnerError {
     RunnerIOError(IOError),
     #[error("HyperfineNonZeroExitCode: Hyperfine child process exited with non-zero exit code: {}", .0)]
     HyperfineNonZeroExitCode(i32),
-    #[error("NoVersionedBaselineData: there was no versioned data in the following directory: {}\n expected structure like <baseline-dir>/<sem-ver-dir>/metric.json", .0.to_string_lossy().into_owned())]
+    #[error("NoVersionedBaselineData: There was no versioned data in the following directory: {}\n expected structure like <baseline-dir>/<sem-ver-dir>/metric.json", .0.to_string_lossy().into_owned())]
     NoVersionedBaselineData(PathBuf),
-    #[error(
-        "NoSamplesComputed: No samples computed. Expected at least one sample to be computed."
-    )]
-    NoSamplesComputed(),
+    #[error("BaselineMetricNotSampled: The metric {} on project {} was included in the baseline comparison but was not sampled.", .0.name, .0.project_name)]
+    BaselineMetricNotSampled(Metric),
 }
 
 impl From<IOError> for RunnerError {
