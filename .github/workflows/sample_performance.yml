@@ -126,5 +126,5 @@ jobs:
 
       # `${{ github.workspace }}` is used to pass the absolute path
       - name: Run Measurement
-        run: mkdir tmp && ./app sample -b baselines -p projects -o tmp
+        run: mkdir tmp && ./app sample -b ${{ github.workspace }}/performance/baselines -p ${{ github.workspace }}/performance/projects -o ${{ github.workspace }}/tmp
         working-directory: ${{ github.workspace }}/performance/
