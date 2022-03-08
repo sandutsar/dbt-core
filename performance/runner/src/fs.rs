@@ -2,12 +2,12 @@ use crate::exceptions::{IOError, RunnerError};
 use crate::types::*;
 use chrono::prelude::*;
 use serde::de::DeserializeOwned;
-use std::fs;
 use std::fs::DirEntry;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::str::FromStr;
+use std::{cmp, fs};
 
 // TODO these should not be defined here anymore. they need to be split at the github action level.
 // To add a new metric to the test suite, simply define it in this list
@@ -89,6 +89,31 @@ fn get_projects<'a>(
         .concat();
 
     Ok(results)
+}
+
+fn latest_version_from(baseline_dir: &PathBuf) -> Result<Version, RunnerError> {
+    let foo: Vec<DirEntry> = fs::read_dir(baseline_dir)
+        .or_else(|e| Err(IOError::ReadErr(baseline_dir.clone(), Some(e))))?
+        .collect::<Result<Vec<DirEntry>, io::Error>>()
+        .or_else(|e| Err(IOError::ReadIterErr(baseline_dir.clone(), Some(e))))?;
+
+    let versions: Vec<Version> = foo
+        .into_iter()
+        .filter_map(|d| {
+            let path = d.path();
+            if path.is_dir() {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .map(|dir| Version::from_str(&dir.display().to_string()))
+        .collect::<Result<Vec<Version>, RunnerError>>()?;
+
+    versions
+        .into_iter()
+        .reduce(cmp::max)
+        .ok_or_else(|| RunnerError::NoVersionedBaselineData(baseline_dir.clone()))
 }
 
 // TODO can we call hyperfine as a rust library?

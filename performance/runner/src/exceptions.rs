@@ -25,6 +25,8 @@ pub enum IOError {
     CannotRecreateTempDirErr(PathBuf, io::Error),
     #[error("BadFilestemError: failed to read the filestem from path {}", .0.to_string_lossy().into_owned())]
     BadFilestemError(PathBuf),
+    #[error("ReadIterErr: While traversing a directory, an error occured.\nDirectory: {}\nOriginating Exception: {}", .0.to_string_lossy().into_owned(), .1.as_ref().map_or("None".to_owned(), |e| format!("{}", e)))]
+    ReadIterErr(PathBuf, Option<io::Error>),
 }
 
 // Custom Error messages for the error states we could encounter
@@ -46,6 +48,8 @@ pub enum RunnerError {
     RunnerIOError(IOError),
     #[error("HyperfineNonZeroExitCode: Hyperfine child process exited with non-zero exit code: {}", .0)]
     HyperfineNonZeroExitCode(i32),
+    #[error("NoVersionedBaselineData: there was no versioned data in the following directory: {}\n expected structure like <baseline-dir>/<sem-ver-dir>/metric.json", .0.to_string_lossy().into_owned())]
+    NoVersionedBaselineData(PathBuf),
 }
 
 impl From<IOError> for RunnerError {
