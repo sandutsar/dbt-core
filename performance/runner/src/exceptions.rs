@@ -50,6 +50,10 @@ pub enum RunnerError {
     HyperfineNonZeroExitCode(i32),
     #[error("NoVersionedBaselineData: there was no versioned data in the following directory: {}\n expected structure like <baseline-dir>/<sem-ver-dir>/metric.json", .0.to_string_lossy().into_owned())]
     NoVersionedBaselineData(PathBuf),
+    #[error(
+        "NoSamplesComputed: No samples computed. Expected at least one sample to be computed."
+    )]
+    NoSamplesComputed(),
 }
 
 impl From<IOError> for RunnerError {

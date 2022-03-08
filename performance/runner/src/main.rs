@@ -89,12 +89,19 @@ fn run_app() -> Result<i32, RunnerError> {
             // get all the calculations or gracefully show the user an exception
             let calculations = calculate::regressions(&baseline_dir, &projects_dir, &out_dir)?;
 
-            // print all calculations to stdout so they can be easily debugged
-            // via CI.
-            println!(":: All Calculations ::\n");
-            for c in &calculations {
-                println!("{:#?}\n", c);
-            }
+            match &calculations[..] {
+                // we expect at least one sample
+                [] => Err(RunnerError::NoSamplesComputed()),
+                // print all calculations to stdout so they can be easily debugged
+                // via CI.
+                cs => {
+                    println!(":: All Calculations ::\n");
+                    for c in cs {
+                        println!("{:#?}\n", c);
+                    }
+                    Ok(())
+                }
+            }?;
 
             // filter for regressions
             let regressions: Vec<&Calculation> =
