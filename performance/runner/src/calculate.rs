@@ -44,10 +44,13 @@ pub fn regressions(
         .collect();
 
     let samples: Vec<Sample> = fs::take_samples(projects_dir, tmp_dir)?;
+    println!("********************");
+    println!("samples     : {:?}", samples.clone());
 
     // calculate regressions with a 3 sigma threshold
     let m_samples: HashMap<Metric, Sample> =
         samples.into_iter().map(|x| (x.metric.clone(), x)).collect();
+    println!("m_samples   : {:?}", m_samples.clone());
 
     let calculations: Vec<Calculation> = baselines
         .into_iter()
@@ -57,6 +60,7 @@ pub fn regressions(
                 .map(|sample| calculate_regression(&sample, &baseline, 3.0))
         })
         .collect();
+    println!("calculations: {:?}", calculations.clone());
 
     Ok(calculations)
 }
