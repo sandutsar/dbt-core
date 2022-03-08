@@ -1,3 +1,18 @@
+# **what?**
+# This workflow models the performance characteristics of a point in time in dbt.
+# It runs specific dbt commands on committed projects multiple times to create and
+# commit information about the distribution to the current branch. For more information
+# see the readme in the performance module.
+#
+# **why?**
+# When developing new features, we can take quick performance samples and compare
+# them against the commited baseline measurements to detect some performance regressions
+# at development time.
+#
+# **when?**
+# This is only run once directly after each release. If for some reason the results of
+# a run are not satisfactory, it can be triggered manually.
+
 name: Model Performance Characteristics
 # Schedule triggers
 on:

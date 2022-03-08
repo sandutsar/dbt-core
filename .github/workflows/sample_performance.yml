@@ -1,3 +1,18 @@
+# **what?**
+# This workflow samples performance characteristics of your commit and compares them to
+# the most recent release. If they are significanly off from the previously recorded
+# distribution it will trigger a failure. Do not rerun these failures to get them to pass.
+# There is more information in the performance readme about how to handle failures.
+#
+# **why?**
+# This will help us potentially catch new performance regressions in development before
+# releasing a new version.
+#
+# **whent?**
+# This runs on every commit in PRs.
+#
+
+
 name: Performance Regression Tests
 # Schedule triggers
 on:
