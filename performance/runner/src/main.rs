@@ -2,7 +2,7 @@ extern crate structopt;
 
 mod calculate;
 mod exceptions;
-mod measure;
+mod fs;
 mod types;
 
 use crate::exceptions::RunnerError;
@@ -66,8 +66,7 @@ fn run_app() -> Result<i32, RunnerError> {
 
             // if there are any nonzero exit codes from the hyperfine runs,
             // return the first one. otherwise return zero.
-            let baseline =
-                measure::model(version, &projects_dir, &baselines_dir, &tmp_dir, n_runs)?;
+            let baseline = fs::model(version, &projects_dir, &baselines_dir, &tmp_dir, n_runs)?;
 
             // print the results to the console for viewing in CI
             println!(":: Modeling Results ::");

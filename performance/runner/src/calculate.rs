@@ -1,5 +1,5 @@
 use crate::exceptions::RunnerError;
-use crate::measure;
+use crate::fs;
 use crate::types::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -31,12 +31,13 @@ pub fn regressions(
     tmp_dir: &PathBuf,
 ) -> Result<Vec<Calculation>, RunnerError> {
     // TODO right now we're assuming this path is pointing to the versioned sub directory. that logic hasn't been written yet.
-    let baselines: Vec<Baseline> = measure::from_json_files::<Baseline>(Path::new(&baseline_dir))?
+    // there should be a function that reads in all the versioned directory names, and picks the best fit.
+    let baselines: Vec<Baseline> = fs::from_json_files::<Baseline>(Path::new(&baseline_dir))?
         .into_iter()
         .map(|(_, x)| x)
         .collect();
 
-    let samples: Vec<Sample> = measure::take_samples(projects_dir, tmp_dir)?;
+    let samples: Vec<Sample> = fs::take_samples(projects_dir, tmp_dir)?;
 
     // calculate regressions with a 3 sigma threshold
     let m_samples: HashMap<Metric, Sample> =
