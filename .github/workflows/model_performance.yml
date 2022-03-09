@@ -23,6 +23,11 @@ on:
   #   types: [released]
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
+    inputs:
+      version:
+        description: Version To Model (must be in Pypi)
+        default: 9.9.9
+        required: true
 
 env:
   RUNNER_CACHE_PATH: performance/runner/target/release/runner
