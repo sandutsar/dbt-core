@@ -85,13 +85,22 @@ pub fn file_contents_from(
 fn get_projects<'a>(
     projects_directory: &dyn AsRef<Path>,
 ) -> Result<Vec<(PathBuf, String, HyperfineCmd<'a>)>, IOError> {
-    let entries = fs::read_dir(projects_directory)
-        .or_else(|e| Err(IOError::ReadErr(projects_directory.as_ref().to_path_buf(), Some(e))))?;
+    let entries = fs::read_dir(projects_directory).or_else(|e| {
+        Err(IOError::ReadErr(
+            projects_directory.as_ref().to_path_buf(),
+            Some(e),
+        ))
+    })?;
 
     let results: Vec<(PathBuf, String, HyperfineCmd<'a>)> = entries
         .map(|entry| {
             let path = entry
-                .or_else(|e| Err(IOError::ReadErr(projects_directory.as_ref().to_path_buf(), Some(e))))?
+                .or_else(|e| {
+                    Err(IOError::ReadErr(
+                        projects_directory.as_ref().to_path_buf(),
+                        Some(e),
+                    ))
+                })?
                 .path();
 
             let project_name: String = path
@@ -198,8 +207,16 @@ fn clear_dir(dir: &dyn AsRef<Path>) -> Result<(), io::Error> {
 
 // deletes the output directory, makes one hyperfine run for each project-metric pair,
 // reads in the results, and returns a Sample for each project-metric pair.
-pub fn take_samples(projects_dir: &dyn AsRef<Path>, out_dir: &dyn AsRef<Path>) -> Result<Vec<Sample>, RunnerError> {
-    clear_dir(out_dir).or_else(|e| Err(IOError::CannotRecreateTempDirErr(out_dir.as_ref().to_path_buf(), e)))?;
+pub fn take_samples(
+    projects_dir: &dyn AsRef<Path>,
+    out_dir: &dyn AsRef<Path>,
+) -> Result<Vec<Sample>, RunnerError> {
+    clear_dir(out_dir).or_else(|e| {
+        Err(IOError::CannotRecreateTempDirErr(
+            out_dir.as_ref().to_path_buf(),
+            e,
+        ))
+    })?;
 
     // using one time stamp for all samples.
     let ts = Utc::now();
