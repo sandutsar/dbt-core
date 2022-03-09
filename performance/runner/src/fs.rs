@@ -55,6 +55,50 @@ pub fn from_json_files<T: DeserializeOwned>(
         .collect()
 }
 
+// TODO change PathBuf input types to AsRef<Path> everywhere like they are here
+//
+// gets file contents from a directory for all files with a specific extension.
+// great for deserializing with serde.
+// `extension` should be everything after the dot. e.g. "json"
+pub fn file_contents_from(
+    results_directory: &dyn AsRef<Path>,
+    extension: &str,
+) -> Result<Vec<(PathBuf, String)>, IOError> {
+    let entries: Vec<DirEntry> = fs::read_dir(results_directory)
+        .or_else(|e| {
+            Err(IOError::ReadErr(
+                results_directory.as_ref().to_path_buf(),
+                Some(e),
+            ))
+        })?
+        .collect::<Result<Vec<DirEntry>, io::Error>>()
+        .or_else(|e| {
+            Err(IOError::ReadIterErr(
+                results_directory.as_ref().to_path_buf(),
+                Some(e),
+            ))
+        })?;
+
+    entries
+        .into_iter()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let os_ext = path.extension()?;
+            let ext = os_ext.to_str()?;
+            if ext.ends_with(extension) {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .map(|path| {
+            fs::read_to_string(&path)
+                .map(|contents| (path.clone(), contents))
+                .or_else(|e| Err(IOError::BadFileContentsErr(path.clone(), Some(e))))
+        })
+        .collect()
+}
+
 // TODO this should read the commands to run on each project from the project definitions themselves
 // not from a hard coded array in this file.
 fn get_projects<'a>(
