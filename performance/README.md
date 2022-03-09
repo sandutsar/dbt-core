@@ -3,7 +3,7 @@ This test suite samples the performance characteristics of individual commits ag
 
 This directory includes dbt project setups that are known performance bottlenecks, and a runner written in Rust that runs specific dbt commands on each of the projects. Orchestration is done via the GitHub Action workflow in `/.github/workflows/performance.yml`.
 
-Performance baselines measured during our release process are committed to this directory via github action. (TODO make the file and name it here).
+Performance baselines measured during our release process are committed to `/performance/baselines/` via the github action in `/.github/workflows/model_performance.yml`
 
 ## Investigating Regressions
 
