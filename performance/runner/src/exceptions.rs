@@ -32,7 +32,6 @@ pub enum IOError {
 // in any of the subcommands, and are not prevented at compile time.
 // New constructors should be added for any new error situations that
 // come up. The desired output of these errors is tested below.
-// TODO make the tests up-to-date with the newly added constructors
 #[derive(Debug, Error)]
 pub enum RunnerError {
     #[error("VersionParseFail: Error parsing input `{}`. Must be in the format \"major.minor.patch\" where each component is an integer.", .0)]
