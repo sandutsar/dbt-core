@@ -26,8 +26,6 @@ pub fn from_json_files<T: DeserializeOwned>(
     Ok(paths.into_iter().zip(ts).collect())
 }
 
-// TODO This function does too much. It could have its impure parts split out and tested.
-//
 // Given a directory, read all files in the directory and return each
 // filename with the deserialized json contents of that file.
 pub fn map_deserialize<T: DeserializeOwned>(serialized: &[String]) -> Result<Vec<T>, RunnerError> {
@@ -87,15 +85,15 @@ pub fn file_contents_from(
 // TODO this should read the commands to run on each project from the project definitions themselves
 // not from a hard coded array in this file.
 fn get_projects<'a>(
-    projects_directory: &PathBuf,
+    projects_directory: &dyn AsRef<Path>,
 ) -> Result<Vec<(PathBuf, String, HyperfineCmd<'a>)>, IOError> {
     let entries = fs::read_dir(projects_directory)
-        .or_else(|e| Err(IOError::ReadErr(projects_directory.to_path_buf(), Some(e))))?;
+        .or_else(|e| Err(IOError::ReadErr(projects_directory.as_ref().to_path_buf(), Some(e))))?;
 
     let results: Vec<(PathBuf, String, HyperfineCmd<'a>)> = entries
         .map(|entry| {
             let path = entry
-                .or_else(|e| Err(IOError::ReadErr(projects_directory.to_path_buf(), Some(e))))?
+                .or_else(|e| Err(IOError::ReadErr(projects_directory.as_ref().to_path_buf(), Some(e))))?
                 .path();
 
             let project_name: String = path
@@ -126,7 +124,7 @@ fn get_projects<'a>(
 // returns the latest version of the set.
 //
 // this is used to identify which baseline version we should be targeting to compare samples against.
-pub fn latest_version_from(dir: &PathBuf) -> Result<Version, RunnerError> {
+pub fn latest_version_from(dir: &dyn AsRef<Path>) -> Result<Version, RunnerError> {
     let versions = all_dirs_in(dir)?
         .into_iter()
         // this line is a little opaque but it's just converting OsStr -> String with options along the way.
@@ -140,14 +138,14 @@ pub fn latest_version_from(dir: &PathBuf) -> Result<Version, RunnerError> {
     versions
         .into_iter()
         .reduce(cmp::max)
-        .ok_or_else(|| RunnerError::NoVersionedBaselineData(dir.clone()))
+        .ok_or_else(|| RunnerError::NoVersionedBaselineData(dir.as_ref().to_path_buf()))
 }
 
-fn all_dirs_in(dir: &PathBuf) -> Result<Vec<PathBuf>, IOError> {
+fn all_dirs_in(dir: &dyn AsRef<Path>) -> Result<Vec<PathBuf>, IOError> {
     Ok(fs::read_dir(dir)
-        .or_else(|e| Err(IOError::ReadErr(dir.clone(), Some(e))))?
+        .or_else(|e| Err(IOError::ReadErr(dir.as_ref().to_path_buf(), Some(e))))?
         .collect::<Result<Vec<DirEntry>, io::Error>>()
-        .or_else(|e| Err(IOError::ReadIterErr(dir.clone(), Some(e))))?
+        .or_else(|e| Err(IOError::ReadIterErr(dir.as_ref().to_path_buf(), Some(e))))?
         .into_iter()
         .filter_map(|d| {
             let path = d.path();
@@ -163,11 +161,11 @@ fn all_dirs_in(dir: &PathBuf) -> Result<Vec<PathBuf>, IOError> {
 // TODO can we call hyperfine as a rust library?
 // https://crates.io/crates/hyperfine/1.13.0
 fn run_hyperfine(
-    run_dir: &PathBuf,
+    run_dir: &dyn AsRef<Path>,
     command: &str,
     prep: &str,
     runs: i32,
-    output_file: &PathBuf,
+    output_file: &dyn AsRef<Path>,
 ) -> Result<ExitStatus, IOError> {
     Command::new("hyperfine")
         .current_dir(run_dir)
@@ -184,7 +182,7 @@ fn run_hyperfine(
         .arg(prep)
         .arg(command)
         .arg("--export-json")
-        .arg(output_file)
+        .arg(output_file.as_ref())
         // this prevents hyperfine from capturing dbt's output.
         // Noisy, but good for debugging when tests fail.
         .arg("--show-output")
@@ -193,7 +191,7 @@ fn run_hyperfine(
 }
 
 // Attempt to delete the directory and its contents. If it doesn't exist we'll just recreate it anyway.
-fn clear_dir(dir: &PathBuf) -> Result<(), io::Error> {
+fn clear_dir(dir: &dyn AsRef<Path>) -> Result<(), io::Error> {
     match fs::remove_dir_all(dir) {
         // whether it existed or not, create the directory.
         _ => fs::create_dir(dir),
@@ -202,8 +200,8 @@ fn clear_dir(dir: &PathBuf) -> Result<(), io::Error> {
 
 // deletes the output directory, makes one hyperfine run for each project-metric pair,
 // reads in the results, and returns a Sample for each project-metric pair.
-pub fn take_samples(projects_dir: &PathBuf, out_dir: &PathBuf) -> Result<Vec<Sample>, RunnerError> {
-    clear_dir(out_dir).or_else(|e| Err(IOError::CannotRecreateTempDirErr(out_dir.clone(), e)))?;
+pub fn take_samples(projects_dir: &dyn AsRef<Path>, out_dir: &dyn AsRef<Path>) -> Result<Vec<Sample>, RunnerError> {
+    clear_dir(out_dir).or_else(|e| Err(IOError::CannotRecreateTempDirErr(out_dir.as_ref().to_path_buf(), e)))?;
 
     // using one time stamp for all samples.
     let ts = Utc::now();
@@ -216,7 +214,7 @@ pub fn take_samples(projects_dir: &PathBuf, out_dir: &PathBuf) -> Result<Vec<Sam
         };
 
         let command = format!("{} --profiles-dir ../../project_config/", hcmd.cmd);
-        let mut output_file = out_dir.clone();
+        let mut output_file = out_dir.as_ref().to_path_buf();
         output_file.push(metric.filename());
 
         // TODO we really want one run, not two. Right now the second is discarded. so we might not want to use hyperfine for taking samples.
@@ -247,9 +245,9 @@ pub fn take_samples(projects_dir: &PathBuf, out_dir: &PathBuf) -> Result<Vec<Sam
 // Intended to be called after each new version is released.
 pub fn model<'a>(
     version: Version,
-    projects_directory: &PathBuf,
-    out_dir: &PathBuf,
-    tmp_dir: &PathBuf,
+    projects_directory: &dyn AsRef<Path>,
+    out_dir: &dyn AsRef<Path>,
+    tmp_dir: &dyn AsRef<Path>,
     n_runs: i32,
 ) -> Result<Vec<Baseline>, RunnerError> {
     for (path, project_name, hcmd) in get_projects(projects_directory)? {
@@ -259,7 +257,7 @@ pub fn model<'a>(
         };
 
         let command = format!("{} --profiles-dir ../../project_config/", hcmd.clone().cmd);
-        let mut tmp_file = tmp_dir.clone();
+        let mut tmp_file = tmp_dir.as_ref().to_path_buf();
         tmp_file.push(metric.filename());
 
         let status = run_hyperfine(&path, &command, hcmd.clone().prepare, n_runs, &tmp_file)
@@ -287,7 +285,7 @@ pub fn model<'a>(
     // write a file for each baseline measurement
     for model in &baselines {
         // create the correct filename like `/out_dir/1.0.0/parse___2000_models.json`
-        let mut out_file = out_dir.clone();
+        let mut out_file = out_dir.as_ref().to_path_buf();
         out_file.push(version.to_string());
 
         // write out the version directory. ignore errors since if it's already made that's fine.
