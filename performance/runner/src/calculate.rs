@@ -19,6 +19,7 @@ fn calculate_regression(sample: &Sample, baseline: &Baseline, sigma: f64) -> Cal
         mean: model.mean,
         stddev: model.stddev,
         threshold: threshold,
+        sample: sample.value,
     }
 }
 

@@ -184,6 +184,7 @@ pub struct Calculation {
     pub mean: f64,
     pub stddev: f64,
     pub threshold: f64,
+    pub sample: f64,
 }
 
 // This display instance is used to derive Serialize as well via `SerializeDisplay`
