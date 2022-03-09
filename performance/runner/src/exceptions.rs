@@ -41,8 +41,8 @@ pub enum RunnerError {
     VersionParseFail(String),
     #[error("MetricParseFail: Error parsing input `{}`. Must be in the format \"metricname___projectname\" with no file extensions.", .0)]
     MetricParseFail(String),
-    #[error("BadJSONErr: JSON in file cannot be deserialized as expected.\nFilepath: {}\nOriginating Exception: {}", .0.to_string_lossy().into_owned(), .1.as_ref().map_or("None".to_owned(), |e| format!("{}", e)))]
-    BadJSONErr(PathBuf, Option<serde_json::Error>),
+    #[error("BadJSONErr: JSON in file cannot be deserialized as expected.\nRaw json: {}\nOriginating Exception: {}", .0, .1.as_ref().map_or("None".to_owned(), |e| format!("{}", e)))]
+    BadJSONErr(String, Option<serde_json::Error>),
     #[error("SerializationErr: Object cannot be serialized as expected.\nOriginating Exception: {}", .0)]
     SerializationErr(serde_json::Error),
     #[error("{}", .0)]

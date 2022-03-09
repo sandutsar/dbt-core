@@ -17,40 +17,25 @@ static METRICS: [HyperfineCmd; 1] = [HyperfineCmd {
     cmd: "dbt parse --no-version-check",
 }];
 
+pub fn from_json_files<T: DeserializeOwned>(
+    dir: &dyn AsRef<Path>,
+) -> Result<Vec<(PathBuf, T)>, RunnerError> {
+    let contents = file_contents_from(dir, "json")?;
+    let (paths, strings): (Vec<PathBuf>, Vec<String>) = contents.iter().cloned().unzip();
+    let ts = map_deserialize(&strings)?;
+    Ok(paths.into_iter().zip(ts).collect())
+}
+
 // TODO This function does too much. It could have its impure parts split out and tested.
 //
 // Given a directory, read all files in the directory and return each
 // filename with the deserialized json contents of that file.
-pub fn from_json_files<T: DeserializeOwned>(
-    results_directory: &Path,
-) -> Result<Vec<(PathBuf, T)>, RunnerError> {
-    fs::read_dir(results_directory)
-        .or_else(|e| Err(IOError::ReadErr(results_directory.to_path_buf(), Some(e))))
-        .or_else(|e| Err(RunnerError::RunnerIOError(e)))?
+pub fn map_deserialize<T: DeserializeOwned>(serialized: &[String]) -> Result<Vec<T>, RunnerError> {
+    serialized
         .into_iter()
-        .map(|entry| {
-            let ent: DirEntry = entry
-                .or_else(|e| Err(IOError::ReadErr(results_directory.to_path_buf(), Some(e))))
-                .or_else(|e| Err(RunnerError::RunnerIOError(e)))?;
-
-            Ok(ent.path())
-        })
-        .collect::<Result<Vec<PathBuf>, RunnerError>>()?
-        .iter()
-        .filter(|path| {
-            path.extension()
-                .and_then(|ext| ext.to_str())
-                .map_or(false, |ext| ext.ends_with("json"))
-        })
-        .map(|path| {
-            fs::read_to_string(path)
-                .or_else(|e| Err(IOError::BadFileContentsErr(path.clone(), Some(e))))
-                .or_else(|e| Err(RunnerError::RunnerIOError(e)))
-                .and_then(|ref contents| {
-                    serde_json::from_str::<T>(contents)
-                        .or_else(|e| Err(RunnerError::BadJSONErr(path.clone(), Some(e))))
-                })
-                .map(|m| (path.clone(), m))
+        .map(|contents| {
+            serde_json::from_str::<T>(contents)
+                .or_else(|e| Err(RunnerError::BadJSONErr(contents.clone(), Some(e))))
         })
         .collect()
 }

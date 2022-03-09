@@ -2,7 +2,7 @@ use crate::exceptions::RunnerError;
 use crate::fs;
 use crate::types::*;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 // calculates a single regression for a matching sample-baseline pair.
 // does not validate that the sample metric and baseline metric match.
@@ -39,11 +39,10 @@ pub fn regressions(
     target_baseline_dir.push(latest_version.to_string());
 
     // these are all the metrics for all available baselines from the target version
-    let baselines: Vec<Baseline> =
-        fs::from_json_files::<Baseline>(Path::new(&target_baseline_dir))?
-            .into_iter()
-            .map(|(_, x)| x)
-            .collect();
+    let baselines: Vec<Baseline> = fs::from_json_files::<Baseline>(&target_baseline_dir)?
+        .into_iter()
+        .map(|(_, x)| x)
+        .collect();
 
     // check that we have at least one baseline
     if baselines.is_empty() {
