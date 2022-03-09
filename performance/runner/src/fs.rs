@@ -38,8 +38,6 @@ pub fn map_deserialize<T: DeserializeOwned>(serialized: &[String]) -> Result<Vec
         .collect()
 }
 
-// TODO change PathBuf input types to AsRef<Path> everywhere like they are here
-//
 // gets file contents from a directory for all files with a specific extension.
 // great for deserializing with serde.
 // `extension` should be everything after the dot. e.g. "json"
