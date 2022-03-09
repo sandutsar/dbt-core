@@ -1,7 +1,5 @@
 use crate::types::Metric;
 use std::io;
-#[cfg(test)]
-use std::path::Path;
 use std::path::PathBuf;
 use thiserror::Error;
 
