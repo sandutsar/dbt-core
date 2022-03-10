@@ -23,12 +23,19 @@ on:
   workflow_dispatch:
     inputs:
       release_id:
-       description: dbt version to model (must be non-prerelease in Pypi) (^^ always run from main)
-       default: 9.9.9
-       required: true
+        description: dbt version to model (must be non-prerelease in Pypi) (^^ always run from main)
+        default: 9.9.9
+        required: true
+      commit_results:
+        description: commit results directly to the above branch when finished? (true/false)
+        default: false
 
 env:
   RUNNER_CACHE_PATH: performance/runner/target/release/runner
+
+# both jobs need to write
+permissions:
+  content: write
 
 jobs:
   latest-runner:
@@ -103,20 +110,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       steps:
-      - name: Set release id
-        id: setId
+      - name: Set Release Id and Commit Flag
+        id: variables
         run: |
           echo $GITHUB_EVENT_NAME
           # users are prompted to input with the correct format
           if [[ $GITHUB_EVENT_NAME == "workflow_dispatch" ]]; then
             echo "Workflow dispatch event detected"
             echo "::set-output name=release_id::${{github.event.inputs.release_id}}"
+            echo "::set-output name=commit::${{github.event.inputs.commit_results}}"
           # release.tag_name has a v prepended. we must remove it.
           else
             echo "release event detected"
             with_v=${{github.event.release.tag_name}}
             without_v=${with_v:1}
             echo "::set-output name=release_id::$without_v"
+            echo "::set-output name=commit::true"
           fi
 
       - name: Setup Python
@@ -125,7 +134,7 @@ jobs:
           python-version: "3.8"
 
       - name: Install dbt
-        run: pip install dbt-postgres==${{ steps.setId.outputs.release_id }}
+        run: pip install dbt-postgres==${{ steps.variables.outputs.release_id }}
 
       - name: Install Hyperfine
         run: wget https://github.com/sharkdp/hyperfine/releases/download/v1.11.0/hyperfine_1.11.0_amd64.deb && sudo dpkg -i hyperfine_1.11.0_amd64.deb
@@ -146,5 +155,14 @@ jobs:
 
       # `${{ github.workspace }}` is used to pass the absolute path
       - name: Run Measurement
-        run: mkdir tmp && mkdir baselines/${{ steps.setId.outputs.release_id }}/ && ls -F && ./app model -v ${{ steps.setId.outputs.release_id }} -b ${{ github.workspace }}/performance/baselines/ -p ${{ github.workspace }}/performance/projects/ -t ${{ github.workspace }}/performance/tmp/ -n 2
+        run: mkdir tmp && mkdir baselines/${{ steps.variables.outputs.release_id }}/ && ls -F && ./app model -v ${{ steps.setId.outputs.release_id }} -b ${{ github.workspace }}/performance/baselines/ -p ${{ github.workspace }}/performance/projects/ -t ${{ github.workspace }}/performance/tmp/ -n 2
         working-directory: ${{ github.workspace }}/performance/
+
+      - name: Commit Baseline
+        uses: EndBug/add-and-commit@v8
+        if: ${{ steps.variables.outputs.commit == 'true' }}
+        with:
+          add: ${{ github.workspace }}/performance/baselines
+          author_name: 'Github Build Bot'
+          author_email: 'buildbot@fishtownanalytics.com'
+          message: 'adding performance baseline for ${{ steps.variables.outputs.release_id }}'
