@@ -97,4 +97,5 @@ Observations with 3 sigma significance that are _not_ performance regressions co
 - pin commands to projects by reading commands from a file defined in the project.
 - add a postgres warehouse to run `dbt compile` and `dbt run` commands
 - add more projects to test different configurations that have been known performance bottlenecks
+- Account for github action variation: Either measure it, or eliminate it. To measure it we could set up another action that periodically samples the same version of dbt and use a 7 day rolling variation. To eliminate it we could run the action using something like [act](https://github.com/nektos/act) on dedicated hardware.
 - build in a git-bisect run to automatically identify the commits that caused a performance regression by modeling each commit's expected value for the failing metric. Running this automatically, or even providing a script to do this locally would be useful.
