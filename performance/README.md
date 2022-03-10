@@ -1,4 +1,10 @@
 # Performance Regression Testing
+
+## Attention!
+PLEASE READ THIS README IN THE MAIN BRANCH
+The performance runner is always pulled from main regardless of the version being modeled or sampled. If you are not in the main branch, this information may be stale.
+
+## Description
 This test suite samples the performance characteristics of individual commits against performance models for prior releases. Performance is measured in project-command pairs which are assumed to conform to a normal distribution. The sampling and comparison is effecient enough to run against PRs.
 
 This directory includes dbt project setups that are known performance bottlenecks, and a runner written in Rust that runs specific dbt commands on each of the projects. Orchestration is done via the GitHub Action workflow in `/.github/workflows/performance.yml`.
