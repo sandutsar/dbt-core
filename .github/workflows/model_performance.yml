@@ -45,12 +45,19 @@ jobs:
         with:
           ref: main
 
+      # create a cache key that will be used in the next job. without this the
+      # next job would have to checkout from main an hash the files itself.
+      - name: Create Cache Key
+        id: cacheKey
+        run: echo "::set-output name=key::${{ runner.os }}-${{ hashFiles('performance/runner/Cargo.toml')}}-${{ hashFiles('performance/runner/src/*') }}"
+        working-directory: ${{ env.RUNNER_CACHE_PATH }}
+
       # attempts to access a previously cached runner
       - uses: actions/cache@v2
         id: cache
         with:
           path: ${{ env.RUNNER_CACHE_PATH }}
-          key: ${{ runner.os }}-${{ hashFiles('performance/runner/Cargo.toml')}}-${{ hashFiles('performance/runner/src/*') }}
+          key: ${{ steps.cacheKey.outputs.key }}
 
       - name: Fetch Rust Toolchain
         if: steps.cache.outputs.cache-hit != 'true'
@@ -118,7 +125,7 @@ jobs:
           python-version: "3.8"
 
       - name: Install dbt
-        run: pip install dbt-postgres==${{ env.RELEASE_ID }}
+        run: pip install dbt-postgres==${{ steps.setId.outputs.release_id }}
 
       - name: Install Hyperfine
         run: wget https://github.com/sharkdp/hyperfine/releases/download/v1.11.0/hyperfine_1.11.0_amd64.deb && sudo dpkg -i hyperfine_1.11.0_amd64.deb
@@ -129,7 +136,7 @@ jobs:
         id: cache
         with:
           path: ${{ env.RUNNER_CACHE_PATH }}
-          key: ${{ runner.os }}-${{ hashFiles('performance/runner/Cargo.toml')}}-${{ hashFiles('performance/runner/src/*') }}
+          key: ${{ steps.cacheKey.outputs.key }}
 
       - name: Move Runner
         run: mv performance/runner/target/release/runner ./performance/app

@@ -44,6 +44,13 @@ jobs:
         # with:
         #   ref: main
 
+      # create a cache key that will be used in the next job. without this the
+      # next job would have to checkout from main an hash the files itself.
+      - name: Create Cache Key
+        id: cacheKey
+        run: echo "::set-output name=key::${{ runner.os }}-${{ hashFiles('performance/runner/Cargo.toml')}}-${{ hashFiles('performance/runner/src/*') }}"
+        working-directory: ${{ env.RUNNER_CACHE_PATH }}
+
       # attempts to access a previously cached runner
       #
       # unless you're developing the runner, it should be in the cache.
@@ -51,7 +58,7 @@ jobs:
         id: cache
         with:
           path: ${{ env.RUNNER_CACHE_PATH }}
-          key: ${{ runner.os }}-${{ hashFiles('performance/runner/Cargo.toml')}}-${{ hashFiles('performance/runner/src/*') }}
+          key: ${{ steps.cacheKey.outputs.key }}
 
       - name: Fetch Rust Toolchain
         if: steps.cache.outputs.cache-hit != 'true'
@@ -96,6 +103,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
+      # checkout this branch not main
       - name: Checkout
         uses: actions/checkout@v2
 
@@ -116,7 +124,7 @@ jobs:
         id: cache
         with:
           path: ${{ env.RUNNER_CACHE_PATH }}
-          key: ${{ runner.os }}-${{ hashFiles('performance/runner/Cargo.toml')}}-${{ hashFiles('performance/runner/src/*') }}
+          key: ${{ steps.cacheKey.outputs.key }}
 
       - name: Move Runner
         run: mv performance/runner/target/release/runner ./performance/app
