@@ -57,7 +57,6 @@ jobs:
       - name: Create Cache Key
         id: cacheKey
         run: echo "::set-output name=key::${{ runner.os }}-${{ hashFiles('performance/runner/Cargo.toml')}}-${{ hashFiles('performance/runner/src/*') }}"
-        working-directory: ${{ env.RUNNER_CACHE_PATH }}
 
       # attempts to access a previously cached runner
       - uses: actions/cache@v2
