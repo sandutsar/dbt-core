@@ -14,20 +14,18 @@
 # a run are not satisfactory, it can be triggered manually.
 
 name: Model Performance Characteristics
-# Schedule triggers
+
 on:
-  # only runs after non-prereleases are published.
-  # more info: https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#release
-  # TODO uncomment before merge
-  # registry_package:
-  #   types: [released]
-  # Allows you to run this workflow manually from the Actions tab
+  # runs after non-prereleases are published.
+  release:
+    types: [released]
+  # run manually from the actions tab
   workflow_dispatch:
     inputs:
-      version:
-        description: Version To Model (must be in Pypi)
-        default: 9.9.9
-        required: true
+      release_id:
+       description: dbt version to model (must be non-prerelease in Pypi) (^^ always run from main)
+       default: 9.9.9
+       required: true
 
 env:
   RUNNER_CACHE_PATH: performance/runner/target/release/runner
@@ -97,12 +95,21 @@ jobs:
     name: Model a release
     runs-on: ubuntu-latest
     steps:
-      - name: "Set Release Id"
+      steps:
+      - name: Set release id
+        id: setId
         run: |
-          if ${{github.event.release.release_id}}; then
-            echo "${{github.event.release.release_id}}" >> $RELEASE_ID
+          echo $GITHUB_EVENT_NAME
+          # users are prompted to input with the correct format
+          if [[ $GITHUB_EVENT_NAME == "workflow_dispatch" ]]; then
+            echo "Workflow dispatch event detected"
+            echo "::set-output name=release_id::${{github.event.inputs.release_id}}"
+          # release.tag_name has a v prepended. we must remove it.
           else
-            echo "${{github.event.inputs.version_number}}" >> $RELEASE_ID
+            echo "release event detected"
+            with_v=${{github.event.release.tag_name}}
+            without_v=${with_v:1}
+            echo "::set-output name=release_id::$without_v"
           fi
 
       - name: Setup Python
@@ -132,5 +139,5 @@ jobs:
 
       # `${{ github.workspace }}` is used to pass the absolute path
       - name: Run Measurement
-        run: mkdir tmp && mkdir baselines/${{ env.RELEASE_ID }}/ && ls -F && ./app model -v ${{ env.RELEASE_ID }} -b ${{ github.workspace }}/performance/baselines/ -p ${{ github.workspace }}/performance/projects/ -t ${{ github.workspace }}/performance/tmp/ -n 2
+        run: mkdir tmp && mkdir baselines/${{ steps.setId.outputs.release_id }}/ && ls -F && ./app model -v ${{ steps.setId.outputs.release_id }} -b ${{ github.workspace }}/performance/baselines/ -p ${{ github.workspace }}/performance/projects/ -t ${{ github.workspace }}/performance/tmp/ -n 2
         working-directory: ${{ github.workspace }}/performance/
