@@ -63,7 +63,7 @@ class TestRuntimeMaterialization(DBTIntegrationTest):
         self.assertTablesEqual("seed", "view")
 
         # Again, but with a __dbt_backup view
-        #self.run_sql_file("create_view__dbt_backup.sql")
+        self.run_sql_file("create_view__dbt_backup.sql")
         results = self.run_dbt(['run', '--model', 'view'])
         self.assertEqual(len(results), 1)
 
