@@ -1,6 +1,5 @@
 from test.integration.base import DBTIntegrationTest, use_profile
 
-
 class TestRuntimeMaterialization(DBTIntegrationTest):
 
     def setUp(self):
@@ -56,7 +55,7 @@ class TestRuntimeMaterialization(DBTIntegrationTest):
     @use_profile('postgres')
     def test_postgres_delete__dbt_tmp_relation(self):
         # This creates a __dbt_tmp view - make sure it doesn't interfere with the dbt run
-        self.run_sql_file("create_view__dbt_tmp.sql")
+        #self.run_sql_file("create_view__dbt_tmp.sql")
         results = self.run_dbt(['run', '--model', 'view'])
         self.assertEqual(len(results), 1)
 
@@ -64,7 +63,7 @@ class TestRuntimeMaterialization(DBTIntegrationTest):
         self.assertTablesEqual("seed", "view")
 
         # Again, but with a __dbt_backup view
-        self.run_sql_file("create_view__dbt_backup.sql")
+        #self.run_sql_file("create_view__dbt_backup.sql")
         results = self.run_dbt(['run', '--model', 'view'])
         self.assertEqual(len(results), 1)
 
@@ -72,7 +71,7 @@ class TestRuntimeMaterialization(DBTIntegrationTest):
         self.assertTablesEqual("seed", "view")
 
         # Again, but against the incremental materialization
-        self.run_sql_file("create_incremental__dbt_tmp.sql")
+        #self.run_sql_file("create_incremental__dbt_tmp.sql")
         results = self.run_dbt(['run', '--model', 'incremental', '--full-refresh'])
         self.assertEqual(len(results), 1)
 
