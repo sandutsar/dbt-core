@@ -12,4 +12,4 @@ Produces the default  project after running the `dbt init` command for CLI. `dbt
 
 
 # Files
- - `index.html` a file built uising [dbt-docs](https://github.com/dbt-labs/dbt-docs) prior to new releases and replaced in the `dbt-core` directory; is used to generate the docs page after using the `generate docs` command in dbt.
+ - `index.html` a file built using [dbt-docs](https://github.com/dbt-labs/dbt-docs) prior to new releases and replaced in the `dbt-core` directory; is used to generate the docs page after using the `generate docs` command in dbt.
