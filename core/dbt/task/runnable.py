@@ -118,8 +118,7 @@ class GraphRunnableTask(ManifestTask):
     def set_previous_state(self):
         if self.args.state is not None:
             self.previous_state = PreviousState(
-                path = self.args.state,
-                current_path = Path(self.config.target_path)
+                path=self.args.state, current_path=Path(self.config.target_path)
             )
 
     def index_offset(self, value: int) -> int:
