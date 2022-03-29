@@ -1,5 +1,6 @@
 import os
 import json
+import shutil
 import pytest
 from datetime import datetime, timedelta
 
@@ -13,7 +14,11 @@ from tests.functional.sources.common_source_setup import BaseSourcesTest
 #     override_freshness_models__schema_yml,
 # )
 
+
 # TODO: We may create utility classes to handle reusable fixtures.
+def copy_to_previous_state():
+    shutil.copyfile("target/manifest.json", "previous_state/manifest.json")
+    shutil.copyfile("target/run_results.json", "previous_state/run_results.json")
 
 
 # put these here for now to get tests working
@@ -187,8 +192,8 @@ class TestSourceFreshness(SuccessfulSourceFreshnessTest):
 # TODO: Sung's tests
 # Assert nothing to do if current state sources is not fresher than previous state
 # - run source freshness regardless of pass,warn,error →  run `dbt build —select source_status:fresher+` → assert nothing runs
-class TestSourceFreshnerNothingToDo(SuccessfulSourceFreshnessTest):
-    def test_source_freshness_nothing_to_do(self, project):
+class TestSourceFresherNothingToDo(SuccessfulSourceFreshnessTest):
+    def test_source_fresher_nothing_to_do(self, project):
         self._set_updated_at_to(
             project, timedelta(hours=-2)
         )  # this is the fixture we need to dynamically setup different sources.json files in different directories
@@ -221,6 +226,37 @@ class TestSourceFreshnerNothingToDo(SuccessfulSourceFreshnessTest):
 # - run source freshness with `warn` → run `dbt run —select source_status:fresher` → assert nothing is run
 # - run source freshness with `error` → run `dbt run —select source_status:fresher+` → assert downstream nodes pass and work correctly
 # - run source freshness with `error` → run `dbt run —select source_status:fresher` → assert nothing is run
+class TestSourceFresherRun(SuccessfulSourceFreshnessTest):
+    def test_source_fresher_run(self, project):
+        self.run_dbt_with_vars(project, ["run"])
+        previous_state_results = self.run_dbt_with_vars(
+            project,
+            ["source", "freshness", "-o", "previous_state/sources.json"],
+            expect_pass=False,
+        )
+        self._assert_freshness_results("previous_state/sources.json", "error")
+        copy_to_previous_state()
+
+        self._set_updated_at_to(project, timedelta(hours=-2))
+        current_state_results = self.run_dbt_with_vars(
+            project, ["source", "freshness", "-o", "target/sources.json"]
+        )
+        self._assert_freshness_results("target/sources.json", "pass")
+
+        assert previous_state_results[0].max_loaded_at < current_state_results[0].max_loaded_at
+
+        source_fresher_results = self.run_dbt_with_vars(
+            project,
+            ["run", "-s", "source_status:fresher", "--defer", "--state", "previous_state"],
+        )
+        assert source_fresher_results.results == []
+
+        source_fresher_plus_results = self.run_dbt_with_vars(
+            project,
+            ["run", "-s", "source_status:fresher+", "--defer", "--state", "previous_state"],
+        )
+        nodes = set([elem.node.name for elem in source_fresher_plus_results])
+        assert nodes == {"descendant_model"}
 
 
 # TODO: Matt's tests
