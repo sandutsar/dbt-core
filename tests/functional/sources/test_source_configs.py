@@ -12,18 +12,18 @@ class SourceConfigTests:
         pytest.expected_config = SourceConfig(
             enabled=True,
             # TODO: uncomment all this once it's added to SourceConfig, throws error right now
-            # quoting = Quoting(database=False, schema=False, identifier=False, column=False)
-            # freshness = FreshnessThreshold(
-            #     warn_after=Time(count=12, period=TimePeriod.hour),
-            #     error_after=Time(count=24, period=TimePeriod.hour),
-            #     filter=None
-            #     )
-            # loader = "a_loader"
-            # loaded_at_field = some_column
-            # database = custom_database
-            # schema = custom_schema
-            # meta = {'languages': ['python']}
-            # tags = ["important_tag"]
+            quoting=Quoting(database=False, schema=False, identifier=False, column=False),
+            freshness=FreshnessThreshold(
+                warn_after=Time(count=12, period=TimePeriod.hour),
+                error_after=Time(count=24, period=TimePeriod.hour),
+                filter=None,
+            ),
+            loader="a_loader",
+            loaded_at_field="some_column",
+            database="custom_database",
+            schema="custom_schema",
+            meta={"languages": ["python"]},
+            tags=["important_tag"],
         )
 
 
@@ -126,7 +126,7 @@ sources:
 
 
 # Test enabled config at source table level in yaml file
-# expect fail - not implemented
+# expect pass - implemented
 class TestConfigYamlSourceTable(SourceConfigTests):
     @pytest.fixture(scope="class")
     def models(self):
@@ -134,7 +134,6 @@ class TestConfigYamlSourceTable(SourceConfigTests):
             "schema.yml": disabled_source_table__schema_yml,
         }
 
-    @pytest.mark.xfail
     def test_source_config_yaml_source_table(self, project):
         run_dbt(["parse"])
         manifest = get_manifest(project.project_root)
@@ -190,7 +189,7 @@ configs_source_level__schema_yml = """version: 2
 sources:
   - name: test_source
     config:
-        enabled: True
+        enabled: False
         quoting:
             database: False
             schema: False
@@ -212,13 +211,13 @@ sources:
 
 
 # Test configs other than enabled at sources level in yaml file
-# **currently passes since enabled is all that ends up in the
-# node.config since it's the only thing implemented
+# expect fail - not implemented
 class TestAllConfigsSourceLevel(SourceConfigTests):
     @pytest.fixture(scope="class")
     def models(self):
         return {"schema.yml": configs_source_level__schema_yml}
 
+    @pytest.mark.xfail
     def test_source_all_configs_source_level(self, project):
         run_dbt(["parse"])
         manifest = get_manifest(project.project_root)
@@ -263,13 +262,13 @@ sources:
 
 
 # Test configs other than enabled at source table level in yml file
-# expect fail - not implemented
+# only implemented feature so far!
 class TestSourceAllConfigsSourceTable(SourceConfigTests):
     @pytest.fixture(scope="class")
     def models(self):
         return {"schema.yml": configs_source_table__schema_yml}
 
-    @pytest.mark.xfail
+    # @pytest.mark.xfail
     def test_source_all_configs_source_table(self, project):
         run_dbt(["parse"])
         manifest = get_manifest(project.project_root)
@@ -524,13 +523,13 @@ sources:
 
 
 # Check backwards compatibility of setting configs as properties at top level
-# expect pass since the properties don't get copied to the node.config yet so
-# the values match since we haven't build the full SourceConfig yet
+# expect fail - not implemented
 class TestPropertiesAsConfigs(SourceBackwardsCompatibility):
     @pytest.fixture(scope="class")
     def models(self):
         return {"schema.yml": properties_as_configs__schema_yml}
 
+    @pytest.mark.xfail
     def test_source_configs_as_properties(self, project):
         self.check_source_configs_and_properties(project)
 

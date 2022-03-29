@@ -688,7 +688,7 @@ class ParsedSourceDefinition(NodeInfoMixin, ParsedSourceMandatory):
         return (
             self.same_database_representation(old)
             and self.same_fqn(old)
-            and self.same_config(old)
+            and self.same_config(old)  # TODO: ct-201 what actually constitues a change?
             and self.same_quoting(old)
             and self.same_freshness(old)
             and self.same_external(old)

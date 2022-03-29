@@ -7,7 +7,7 @@ from dbt.dataclass_schema import (
     ValidationError,
     register_pattern,
 )
-from dbt.contracts.graph.unparsed import AdditionalPropertiesAllowed
+from dbt.contracts.graph.unparsed import AdditionalPropertiesAllowed, FreshnessThreshold, Quoting
 from dbt.exceptions import InternalException, CompilationException
 from dbt.contracts.util import Replaceable, list_str
 from dbt import hooks
@@ -256,7 +256,7 @@ class BaseConfig(AdditionalPropertiesAllowed, Replaceable):
     # 'meta' moved here from node
     mergebehavior = {
         "append": ["pre-hook", "pre_hook", "post-hook", "post_hook", "tags"],
-        "update": ["quoting", "column_types", "meta"],
+        "update": ["quoting", "column_types", "meta", "freshness"],
     }
 
     @classmethod
@@ -332,9 +332,49 @@ class BaseConfig(AdditionalPropertiesAllowed, Replaceable):
         return self.from_dict(dct)
 
 
+# TODO: determine what all the metadata should be?
 @dataclass
 class SourceConfig(BaseConfig):
     enabled: bool = True
+    # these fields are included in serialized output, but are not part of
+    # config comparison (they are part of database_representation)
+    # TODO: confirm these
+    loader: Optional[str] = field(
+        default=None,
+        metadata=CompareBehavior.Exclude.meta(),
+    )
+    loaded_at_field: Optional[str] = field(
+        default=None,
+        metadata=CompareBehavior.Exclude.meta(),
+    )
+    schema: Optional[str] = field(
+        default=None,
+        metadata=CompareBehavior.Exclude.meta(),
+    )
+    database: Optional[str] = field(
+        default=None,
+        metadata=CompareBehavior.Exclude.meta(),
+    )
+    identifer: Optional[str] = field(
+        default=None,
+        metadata=CompareBehavior.Exclude.meta(),
+    )
+    tags: Union[List[str], str] = field(
+        default_factory=list_str,
+        metadata=metas(ShowBehavior.Hide, MergeBehavior.Append, CompareBehavior.Exclude),
+    )
+    meta: Dict[str, Any] = field(  # TODO: blank?
+        default_factory=dict,
+        metadata=MergeBehavior.Update.meta(),
+    )
+    quoting: Quoting = field(  # TODO: blank
+        default_factory=Quoting,
+        metadata=MergeBehavior.Update.meta(),
+    )
+    freshness: FreshnessThreshold = field(  # TODO: blank
+        default_factory=FreshnessThreshold,
+        metadata=MergeBehavior.Update.meta(),
+    )
 
 
 @dataclass

@@ -241,7 +241,7 @@ class Quoting(dbtClassMixin, Mergeable):
 
 
 @dataclass
-class UnparsedSourceTableDefinition(HasColumnTests, HasTests):
+class UnparsedSourceTableDefinition(HasColumnTests, HasConfig, HasTests):
     loaded_at_field: Optional[str] = None
     identifier: Optional[str] = None
     quoting: Quoting = field(default_factory=Quoting)
@@ -257,8 +257,8 @@ class UnparsedSourceTableDefinition(HasColumnTests, HasTests):
 
 
 @dataclass
-class UnparsedSourceDefinition(dbtClassMixin, Replaceable):
-    name: str
+class UnparsedSourceDefinition(dbtClassMixin, Replaceable, HasConfig):
+    name: str = ""
     description: str = ""
     meta: Dict[str, Any] = field(default_factory=dict)
     database: Optional[str] = None
@@ -269,7 +269,6 @@ class UnparsedSourceDefinition(dbtClassMixin, Replaceable):
     loaded_at_field: Optional[str] = None
     tables: List[UnparsedSourceTableDefinition] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
-    config: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def yaml_key(self) -> "str":
@@ -284,7 +283,7 @@ class UnparsedSourceDefinition(dbtClassMixin, Replaceable):
 
 @dataclass
 class SourceTablePatch(dbtClassMixin):
-    name: str
+    name: str = ""
     description: Optional[str] = None
     meta: Optional[Dict[str, Any]] = None
     data_type: Optional[str] = None

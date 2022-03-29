@@ -365,6 +365,7 @@ class ManifestLoader:
                 self.parse_project(
                     project, project_parser_files[project.project_name], parser_types
                 )
+            # breakpoint() # config as expected
 
             self._perf_info.parse_project_elapsed = time.perf_counter() - start_parse_projects
 
@@ -373,6 +374,7 @@ class ManifestLoader:
             # in SourcePatcher
             start_patch = time.perf_counter()
             patcher = SourcePatcher(self.root_project, self.manifest)
+            # breakpoint()
             patcher.construct_sources()
             self.manifest.sources = patcher.sources
             self._perf_info.patch_sources_elapsed = time.perf_counter() - start_patch
@@ -464,6 +466,7 @@ class ManifestLoader:
                         dct = block.file.pp_dict
                     else:
                         dct = block.file.dict_from_yaml
+                    # breakpoint()
                     parser.parse_file(block, dct=dct)
                 else:
                     parser.parse_file(block)

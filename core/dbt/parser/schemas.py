@@ -670,6 +670,7 @@ class SourceParser(YamlDocsReader):
         path = self.yaml.path.original_file_path
         try:
             cls.validate(data)
+            # breakpoint()
             return cls.from_dict(data)
         except (ValidationError, JSONValidationException) as exc:
             msg = error_context(path, self.key, data, exc)
@@ -685,9 +686,25 @@ class SourceParser(YamlDocsReader):
         for data in self.get_key_dicts():
             data = self.project.credentials.translate_aliases(data, recurse=True)
 
+            # try:
+            #     # target_type: UnparsedNodeUpdate, UnparsedAnalysisUpdate,
+            #     # or UnparsedMacroUpdate
+            #     self._target_type().validate(data)
+            #     self.normalize_configs_properties(data, data["path"])
+            #     node = self._target_type().from_dict(data)
+            # except (ValidationError, JSONValidationException) as exc:
+            #     msg = error_context(path, self.key, data, exc)
+            #     raise ParsingException(msg) from exc
+            # else:
+            #     yield node
+
+            path = self.yaml.path.original_file_path
+
+            self.normalize_configs_properties(data, path)
             is_override = "overrides" in data
             if is_override:
-                data["path"] = self.yaml.path.original_file_path
+                # breakpoint()
+                data["path"] = path
                 patch = self._target_from_dict(SourcePatch, data)
                 assert isinstance(self.yaml.file, SchemaSourceFile)
                 source_file = self.yaml.file
@@ -699,13 +716,32 @@ class SourceParser(YamlDocsReader):
                 source_file.source_patches.append(key)
             else:
                 source = self._target_from_dict(UnparsedSourceDefinition, data)
+                # breakpoint()
                 self.add_source_definitions(source)
         return []
+
+    # We want to raise an error if configs and/or properties are in two places, and copy
+    # to/from toplevel to config if necessary
+    def normalize_configs_properties(self, data, path):
+        # TODO: ct201 - update this for all configs
+        if "meta" in data:
+            if "config" in data and "meta" in data["config"]:
+                raise ParsingException(
+                    f"""
+                    In {path}: found meta dictionary in 'config' dictionary and as top-level key.
+                    Remove the top-level key and define it under 'config' dictionary only.
+                """.strip()
+                )
+            else:
+                if "config" not in data:
+                    data["config"] = {}
+                data["config"]["meta"] = data.pop("meta")
 
     def add_source_definitions(self, source: UnparsedSourceDefinition) -> None:
         original_file_path = self.yaml.path.original_file_path
         fqn_path = self.yaml.path.relative_path
         for table in source.tables:
+            # breakpoint()
             unique_id = ".".join(
                 [NodeType.Source, self.project.project_name, source.name, table.name]
             )
@@ -724,7 +760,9 @@ class SourceParser(YamlDocsReader):
                 unique_id=unique_id,
                 resource_type=NodeType.Source,
                 fqn=fqn,
+                # config=config,
             )
+            # breakpoint()
             self.manifest.add_source(self.yaml.file, source_def)
 
 

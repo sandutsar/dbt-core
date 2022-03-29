@@ -182,6 +182,7 @@ class ContextConfigGenerator(BaseContextConfigGenerator[C]):
 
     def _update_from_config(self, result: C, partial: Dict[str, Any], validate: bool = False) -> C:
         translated = self._active_project.credentials.translate_aliases(partial)
+        # breakpoint()
         return result.update_from(
             translated, self._active_project.credentials.type, validate=validate
         )
@@ -203,6 +204,7 @@ class ContextConfigGenerator(BaseContextConfigGenerator[C]):
             base=base,
             patch_config_dict=patch_config_dict,
         )
+        # breakpoint()
         finalized = config.finalize_and_validate()
         return finalized.to_dict(omit_none=True)
 

@@ -56,6 +56,7 @@ class SourcePatcher:
     # with SourcePatches to produce ParsedSourceDefinitions.
     def construct_sources(self) -> None:
         for unique_id, unpatched in self.manifest.sources.items():
+            # breakpoint()
             schema_file = self.manifest.files[unpatched.file_id]
             if isinstance(unpatched, ParsedSourceDefinition):
                 # In partial parsing, there will be ParsedSourceDefinitions
@@ -81,6 +82,7 @@ class SourcePatcher:
 
             # Convert UnpatchedSourceDefinition to a ParsedSourceDefinition
             parsed = self.parse_source(patched)
+            # breakpoint()
             if parsed.config.enabled:
                 self.sources[unique_id] = parsed
             else:
@@ -93,6 +95,7 @@ class SourcePatcher:
         unpatched: UnpatchedSourceDefinition,
         patch: Optional[SourcePatch],
     ) -> UnpatchedSourceDefinition:
+        # breakpoint()
 
         # This skips patching if no patch exists because of the
         # performance overhead of converting to and from dicts
@@ -136,16 +139,20 @@ class SourcePatcher:
         # make sure we don't do duplicate tags from source + table
         tags = sorted(set(itertools.chain(source.tags, table.tags)))
 
+        # breakpoint()
         config = self._generate_source_config(
             fqn=target.fqn,
             rendered=True,
             project_name=target.package_name,
+            config_call_dict=table.config,
         )
+        # breakpoint()
 
         unrendered_config = self._generate_source_config(
             fqn=target.fqn,
             rendered=False,
             project_name=target.package_name,
+            config_call_dict=table.config,
         )
 
         if not isinstance(config, SourceConfig):
@@ -261,7 +268,9 @@ class SourcePatcher:
         )
         return node
 
-    def _generate_source_config(self, fqn: List[str], rendered: bool, project_name: str):
+    def _generate_source_config(
+        self, fqn: List[str], rendered: bool, project_name: str, config_call_dict: Dict[str, Any]
+    ):
         generator: BaseContextConfigGenerator
         if rendered:
             generator = ContextConfigGenerator(self.root_project)
@@ -269,7 +278,7 @@ class SourcePatcher:
             generator = UnrenderedConfigGenerator(self.root_project)
 
         return generator.calculate_node_config(
-            config_call_dict={},
+            config_call_dict=config_call_dict,
             fqn=fqn,
             resource_type=NodeType.Source,
             project_name=project_name,
