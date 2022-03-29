@@ -187,6 +187,29 @@ class TestSourceFreshness(SuccessfulSourceFreshnessTest):
 # TODO: Sung's tests
 # Assert nothing to do if current state sources is not fresher than previous state
 # - run source freshness regardless of pass,warn,error →  run `dbt build —select source_status:fresher+` → assert nothing runs
+class TestSourceFreshnerNothingToDo(SuccessfulSourceFreshnessTest):
+    def test_source_freshness_nothing_to_do(self, project):
+        self._set_updated_at_to(
+            project, timedelta(hours=-2)
+        )  # this is the fixture we need to dynamically setup different sources.json files in different directories
+        previous_state_results = self.run_dbt_with_vars(
+            project, ["source", "freshness", "-o", "previous_state/sources.json"]
+        )
+        self._assert_freshness_results("previous_state/sources.json", "pass")
+
+        current_state_results = self.run_dbt_with_vars(
+            project, ["source", "freshness", "-o", "target/sources.json"]
+        )
+        self._assert_freshness_results("target/sources.json", "pass")
+
+        assert previous_state_results[0].max_loaded_at == current_state_results[0].max_loaded_at
+
+        source_fresher_results = self.run_dbt_with_vars(
+            project,
+            ["test", "-s", "source_status:fresher+", "--defer", "--state", "./previous_state"],
+        )
+        assert source_fresher_results.results == []
+
 
 # TODO: probably add a class and inherit TestSourceFreshness or SuccessfulSourceFreshnessTest
 # TODO: manipulate the sources.json path AND results to be artificially older than current state
