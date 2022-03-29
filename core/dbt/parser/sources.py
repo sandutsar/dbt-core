@@ -56,7 +56,6 @@ class SourcePatcher:
     # with SourcePatches to produce ParsedSourceDefinitions.
     def construct_sources(self) -> None:
         for unique_id, unpatched in self.manifest.sources.items():
-            # breakpoint()
             schema_file = self.manifest.files[unpatched.file_id]
             if isinstance(unpatched, ParsedSourceDefinition):
                 # In partial parsing, there will be ParsedSourceDefinitions
@@ -82,7 +81,6 @@ class SourcePatcher:
 
             # Convert UnpatchedSourceDefinition to a ParsedSourceDefinition
             parsed = self.parse_source(patched)
-            # breakpoint()
             if parsed.config.enabled:
                 self.sources[unique_id] = parsed
             else:
@@ -95,7 +93,6 @@ class SourcePatcher:
         unpatched: UnpatchedSourceDefinition,
         patch: Optional[SourcePatch],
     ) -> UnpatchedSourceDefinition:
-        # breakpoint()
 
         # This skips patching if no patch exists because of the
         # performance overhead of converting to and from dicts
@@ -139,14 +136,12 @@ class SourcePatcher:
         # make sure we don't do duplicate tags from source + table
         tags = sorted(set(itertools.chain(source.tags, table.tags)))
 
-        # breakpoint()
         config = self._generate_source_config(
             fqn=target.fqn,
             rendered=True,
             project_name=target.package_name,
             config_call_dict=table.config,
         )
-        # breakpoint()
 
         unrendered_config = self._generate_source_config(
             fqn=target.fqn,
