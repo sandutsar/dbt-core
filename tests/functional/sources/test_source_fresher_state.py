@@ -157,36 +157,36 @@ class SuccessfulSourceFreshnessTest(BaseSourcesTest):
 
 # TODO: warn_source, pass_source, error_source serve as starting points for previous state sources.json
 # TODO: inherit SuccessfulSourceFreshnessTest as a base class for downstream tests
-class TestSourceFreshness(SuccessfulSourceFreshnessTest):
-    def test_source_freshness(self, project):
-        # test_source.test_table should have a loaded_at field of `updated_at`
-        # and a freshness of warn_after: 10 hours, error_after: 18 hours
-        # by default, our data set is way out of date!
+# class TestSourceFreshness(SuccessfulSourceFreshnessTest):
+#     def test_source_freshness(self, project):
+#         # test_source.test_table should have a loaded_at field of `updated_at`
+#         # and a freshness of warn_after: 10 hours, error_after: 18 hours
+#         # by default, our data set is way out of date!
 
-        results = self.run_dbt_with_vars(
-            project, ["source", "freshness", "-o", "target/error_source.json"], expect_pass=False
-        )
-        assert len(results) == 1
-        assert results[0].status == "error"
-        self._assert_freshness_results("target/error_source.json", "error")
+#         results = self.run_dbt_with_vars(
+#             project, ["source", "freshness", "-o", "target/error_source.json"], expect_pass=False
+#         )
+#         assert len(results) == 1
+#         assert results[0].status == "error"
+#         self._assert_freshness_results("target/error_source.json", "error")
 
-        self._set_updated_at_to(project, timedelta(hours=-12))
-        results = self.run_dbt_with_vars(
-            project,
-            ["source", "freshness", "-o", "target/warn_source.json"],
-        )
-        assert len(results) == 1
-        assert results[0].status == "warn"
-        self._assert_freshness_results("target/warn_source.json", "warn")
+#         self._set_updated_at_to(project, timedelta(hours=-12))
+#         results = self.run_dbt_with_vars(
+#             project,
+#             ["source", "freshness", "-o", "target/warn_source.json"],
+#         )
+#         assert len(results) == 1
+#         assert results[0].status == "warn"
+#         self._assert_freshness_results("target/warn_source.json", "warn")
 
-        self._set_updated_at_to(project, timedelta(hours=-2))
-        results = self.run_dbt_with_vars(
-            project,
-            ["source", "freshness", "-o", "target/pass_source.json"],
-        )
-        assert len(results) == 1
-        assert results[0].status == "pass"
-        self._assert_freshness_results("target/pass_source.json", "pass")
+#         self._set_updated_at_to(project, timedelta(hours=-2))
+#         results = self.run_dbt_with_vars(
+#             project,
+#             ["source", "freshness", "-o", "target/pass_source.json"],
+#         )
+#         assert len(results) == 1
+#         assert results[0].status == "pass"
+#         self._assert_freshness_results("target/pass_source.json", "pass")
 
 
 # TODO: Sung's tests
@@ -194,6 +194,7 @@ class TestSourceFreshness(SuccessfulSourceFreshnessTest):
 # - run source freshness regardless of pass,warn,error →  run `dbt build —select source_status:fresher+` → assert nothing runs
 class TestSourceFresherNothingToDo(SuccessfulSourceFreshnessTest):
     def test_source_fresher_nothing_to_do(self, project):
+        self.run_dbt_with_vars(project, ["run"])
         self._set_updated_at_to(
             project, timedelta(hours=-2)
         )  # this is the fixture we need to dynamically setup different sources.json files in different directories
@@ -201,6 +202,7 @@ class TestSourceFresherNothingToDo(SuccessfulSourceFreshnessTest):
             project, ["source", "freshness", "-o", "previous_state/sources.json"]
         )
         self._assert_freshness_results("previous_state/sources.json", "pass")
+        copy_to_previous_state()
 
         current_state_results = self.run_dbt_with_vars(
             project, ["source", "freshness", "-o", "target/sources.json"]
