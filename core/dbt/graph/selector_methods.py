@@ -527,9 +527,7 @@ class ResultSelectorMethod(SelectorMethod):
                 yield node
 
 
-class SourceStatusSelectorMethod(
-    SelectorMethod
-):
+class SourceStatusSelectorMethod(SelectorMethod):
     def search(self, included_nodes: Set[UniqueId], selector: str) -> Iterator[UniqueId]:
 
         if self.previous_state is None or self.previous_state.sources is None:
@@ -542,23 +540,47 @@ class SourceStatusSelectorMethod(
             )
 
         current_state_sources = {
-            result.unique_id: result.max_loaded_at
+            result.unique_id: getattr(result, "max_loaded_at", None)
             for result in self.previous_state.sources_current.results
+            if hasattr(result, "max_loaded_at")
+        }
+
+        current_state_sources_runtime_error = {
+            result.unique_id
+            for result in self.previous_state.sources_current.results
+            if not hasattr(result, "max_loaded_at")
         }
 
         previous_state_sources = {
-            result.unique_id: result.max_loaded_at
+            result.unique_id: getattr(result, "max_loaded_at", None)
             for result in self.previous_state.sources.results
+            if hasattr(result, "max_loaded_at")
+        }
+
+        previous_state_sources_runtime_error = {
+            result.unique_id
+            for result in self.previous_state.sources_current.results
+            if not hasattr(result, "max_loaded_at")
         }
 
         matches = set()
         for unique_id in current_state_sources:
             if unique_id not in previous_state_sources:
                 matches.add(unique_id)
-            elif selector == "fresher" and current_state_sources.get(
-                unique_id
-            ) > previous_state_sources.get(unique_id):
+            # elif (
+            #     selector == "fresher"
+            #     and current_state_sources[unique_id] is not None
+            #     and previous_state_sources[unique_id] is not None
+            # ):
+            elif current_state_sources[unique_id] > previous_state_sources[unique_id]:
                 matches.add(unique_id)
+
+        for unique_id in matches:
+            if (
+                unique_id in previous_state_sources_runtime_error
+                or unique_id in current_state_sources_runtime_error
+            ):
+                matches.remove(unique_id)
 
         for node, real_node in self.all_nodes(included_nodes):
             if node in matches:
