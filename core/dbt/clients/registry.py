@@ -40,6 +40,7 @@ def _get(path, registry_base_url=None):
     # raising this error will cause this function to retry (if called within _get_with_retries)
     # and hopefully get a valid response.  This seems to happen when there's an issue with the Hub.
     # See https://github.com/dbt-labs/dbt-core/issues/4577
+    # and https://github.com/dbt-labs/dbt-core/issues/4849
     if not validJSON(resp.json()):
         raise requests.exceptions.ContentDecodingError(
             "Request error: The response is not valid json", response=resp
@@ -49,15 +50,20 @@ def _get(path, registry_base_url=None):
 
 def validJSON(jsonData):
     try:
-        json.loads(jsonData)
-    # this will catch both malformed json and json = None
+        # the response quotes were converted to single quotes which is not
+        # valid json.  json.dumps() will fix that.
+        json.loads(json.dumps(jsonData))
+    # We need to catch both malformed json and json = None
     except (ValueError, TypeError) as exc:
+        # This event will allow us to see the actual json causing issues if more deps
+        # issues crop up.  Otherwise we're flying a little blind.
         fire_event(RegistryMalformedResponse(jsonData=jsonData, exc=exc))
         return False
     return True
 
 
 def index(registry_base_url=None):
+    # this returns of a list of all packages on the Hub
     return _get_with_retries("api/v1/index.json", registry_base_url)
 
 
