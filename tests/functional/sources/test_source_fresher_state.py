@@ -294,6 +294,36 @@ class TestSourceFresherRun(SuccessfulSourceFreshnessTest):
         nodes = set([elem.node.name for elem in source_fresher_plus_results])
         assert nodes == {"descendant_model"}
 
+    def test_source_fresher_run_pass(self, project):
+        self.run_dbt_with_vars(project, ["run"])
+        self._set_updated_at_to(project, timedelta(hours=-2))
+        previous_state_results = self.run_dbt_with_vars(
+            project, ["source", "freshness", "-o", "previous_state/sources.json"]
+        )
+        self._assert_freshness_results("previous_state/sources.json", "pass")
+        copy_to_previous_state()
+
+        self._set_updated_at_to(project, timedelta(hours=-1))
+        current_state_results = self.run_dbt_with_vars(
+            project, ["source", "freshness", "-o", "target/sources.json"]
+        )
+        self._assert_freshness_results("target/sources.json", "pass")
+
+        assert previous_state_results[0].max_loaded_at < current_state_results[0].max_loaded_at
+
+        source_fresher_results = self.run_dbt_with_vars(
+            project,
+            ["run", "-s", "source_status:fresher", "--defer", "--state", "previous_state"],
+        )
+        assert source_fresher_results.results == []
+
+        source_fresher_plus_results = self.run_dbt_with_vars(
+            project,
+            ["run", "-s", "source_status:fresher+", "--defer", "--state", "previous_state"],
+        )
+        nodes = set([elem.node.name for elem in source_fresher_plus_results])
+        assert nodes == {"descendant_model"}
+
 
 # TODO: Matt's tests
 # Make sure this works in combination with `state:modified+`
