@@ -321,7 +321,6 @@ class TestConfigGetDefault(DBTIntegrationTest):
 
 
 class TestConfigUtils(DBTIntegrationTest):
-
     @property
     def schema(self):
         return "config_039"
@@ -329,26 +328,23 @@ class TestConfigUtils(DBTIntegrationTest):
     @property
     def models(self):
         return "models"
-    
+
     @property
     def project_config(self):
         project_path = os.path.dirname(os.path.realpath(__file__)) + "/project"
         project_config = get_project_config(
-            project_path,
-            "test",
-            Namespace(profiles_dir=project_path)
+            project_path, "test", Namespace(profiles_dir=project_path)
         )
-        
+
         # thanks yaml :(
         project_config["name"] = str(project_config["name"])
         project_config["version"] = str(project_config["version"])
         return project_config
-        
 
-    @use_profile('postgres')
+    @use_profile("postgres")
     def test_postgres_get_project_config(self):
 
-        seed_result = self.run_dbt(['seed'], expect_pass=True)
-        run_result = self.run_dbt(['run'], expect_pass=True)
+        seed_result = self.run_dbt(["seed"], expect_pass=True)
+        run_result = self.run_dbt(["run"], expect_pass=True)
         self.assertEqual(len(seed_result), 1)
         self.assertEqual(len(run_result), 1)
