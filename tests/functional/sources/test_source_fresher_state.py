@@ -229,7 +229,40 @@ class TestSourceFresherNothingToDo(SuccessfulSourceFreshnessTest):
 # - run source freshness with `error` → run `dbt run —select source_status:fresher+` → assert downstream nodes pass and work correctly
 # - run source freshness with `error` → run `dbt run —select source_status:fresher` → assert nothing is run
 class TestSourceFresherRun(SuccessfulSourceFreshnessTest):
-    def test_source_fresher_run(self, project):
+    def test_source_fresher_run_error(self, project):
+        self.run_dbt_with_vars(project, ["run"])
+        previous_state_results = self.run_dbt_with_vars(
+            project,
+            ["source", "freshness", "-o", "previous_state/sources.json"],
+            expect_pass=False,
+        )
+        self._assert_freshness_results("previous_state/sources.json", "error")
+        copy_to_previous_state()
+
+        self._set_updated_at_to(project, timedelta(hours=-20))
+        current_state_results = self.run_dbt_with_vars(
+            project,
+            ["source", "freshness", "-o", "target/sources.json"],
+            expect_pass=False,
+        )
+        self._assert_freshness_results("target/sources.json", "error")
+
+        assert previous_state_results[0].max_loaded_at < current_state_results[0].max_loaded_at
+
+        source_fresher_results = self.run_dbt_with_vars(
+            project,
+            ["run", "-s", "source_status:fresher", "--defer", "--state", "previous_state"],
+        )
+        assert source_fresher_results.results == []
+
+        source_fresher_plus_results = self.run_dbt_with_vars(
+            project,
+            ["run", "-s", "source_status:fresher+", "--defer", "--state", "previous_state"],
+        )
+        nodes = set([elem.node.name for elem in source_fresher_plus_results])
+        assert nodes == {"descendant_model"}
+
+    def test_source_fresher_run_warn(self, project):
         self.run_dbt_with_vars(project, ["run"])
         previous_state_results = self.run_dbt_with_vars(
             project,
