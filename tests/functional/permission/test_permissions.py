@@ -44,7 +44,7 @@ class TestPermissions:
                         "user": "noaccess",
                         "pass": "password",
                         "dbname": os.getenv("POSTGRES_TEST_DATABASE", "dbt"),
-                        "schema": unique_schema + "_alt",  # Should this be the same unique_schema?
+                        "schema": unique_schema,
                     },
                 },
             }
@@ -64,7 +64,6 @@ class TestPermissions:
         project,
     ):
         # now it should work!
-        # breakpoint()
         project.run_sql("grant create on database {} to noaccess".format(project.database))
         project.run_sql(
             'grant usage, create on schema "{}" to noaccess'.format(project.test_schema)
@@ -72,5 +71,5 @@ class TestPermissions:
         project.run_sql(
             'grant select on all tables in schema "{}" to noaccess'.format(project.test_schema)
         )
-        results = run_dbt(["run", "--target", "noaccess"])
+        results = run_dbt(["run", "--target", "noaccess"], expect_pass=True)
         assert len(results) == 1

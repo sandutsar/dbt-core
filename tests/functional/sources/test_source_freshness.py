@@ -56,6 +56,7 @@ class SuccessfulSourceFreshnessTest(BaseSourcesTest):
     def _set_updated_at_to(self, project, delta):
         insert_time = datetime.utcnow() + delta
         timestr = insert_time.strftime("%Y-%m-%d %H:%M:%S")
+        print(f"--- _set_updated_at_to. utcnow: {datetime.utcnow()}, timestr: {timestr}")
         # favorite_color,id,first_name,email,ip_address,updated_at
         insert_id = pytest._id
         pytest._id += 1
@@ -292,7 +293,7 @@ class TestSourceFreshnessErrors(SuccessfulSourceFreshnessTest):
 
 class TestSourceFreshnessFilter(SuccessfulSourceFreshnessTest):
     @pytest.fixture(scope="class")
-    def filtered_models(self):
+    def models(self):
         return {"schema.yml": filtered_models__schema_yml}
 
     def test_source_freshness_all_records(self, project):

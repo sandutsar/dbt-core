@@ -4,6 +4,7 @@ import yaml
 import json
 import warnings
 from typing import List
+from contextlib import contextmanager
 
 from dbt.main import handle_and_check
 from dbt.logger import log_manager
@@ -12,6 +13,32 @@ from dbt.events.functions import fire_event, capture_stdout_logs, stop_capture_s
 from dbt.events.test_types import IntegrationTestDebug
 from dbt.context import providers
 from unittest.mock import patch
+
+# =============================================================================
+# Test utilities
+#   run_dbt
+#   run_dbt_and_capture
+#   get_manifest
+#   copy_file
+#   rm_file
+#   write_file
+#   read_file
+#   get_artifact
+#   update_config_file
+#   get_unique_ids_in_results
+#   check_results_nodes_by_name
+#   check_result_nodes_by_unique_id
+
+# SQL related utilities
+#   run_sql_with_adapter
+#   relation_from_name
+#   check_relation_types (table/view)
+#   check_relations_equal
+#   check_relations_equal_with_relations
+#   update_rows
+#      generate_update_clause
+
+# =============================================================================
 
 
 # This is used in pytest tests to run dbt
@@ -28,7 +55,7 @@ def run_dbt(args: List[str] = None, expect_pass=True):
 
     print("\n\nInvoking dbt with {}".format(args))
     res, success = handle_and_check(args)
-    #   assert success == expect_pass, "dbt exit state did not match expected"
+    assert success == expect_pass, "dbt exit state did not match expected"
     return res
 
 
@@ -112,6 +139,37 @@ def update_config_file(updates, *paths):
     write_file(new_yaml, *paths)
 
 
+def get_unique_ids_in_results(results):
+    unique_ids = []
+    for result in results:
+        unique_ids.append(result.node.unique_id)
+    return unique_ids
+
+
+def check_result_nodes_by_name(results, names):
+    result_names = []
+    for result in results:
+        result_names.append(result.node.name)
+    assert set(names) == set(result_names)
+
+
+def check_result_nodes_by_unique_id(results, unique_ids):
+    result_unique_ids = []
+    for result in results:
+        result_unique_ids.append(result.node.unique_id)
+    assert set(unique_ids) == set(result_unique_ids)
+
+
+class TestProcessingException(Exception):
+    pass
+
+
+# Testing utilties that use adapter code
+
+# Uses:
+#    adapter.config.credentials
+#    adapter.quote
+#    adapter.run_sql_for_tests
 def run_sql_with_adapter(adapter, sql, fetch=None):
     if sql.strip() == "":
         return
@@ -124,21 +182,18 @@ def run_sql_with_adapter(adapter, sql, fetch=None):
 
     msg = f'test connection "__test" executing: {sql}'
     fire_event(IntegrationTestDebug(msg=msg))
-    # Since the 'adapter' in dbt.adapters.factory may have been replaced by execution
-    # of dbt commands since the test 'adapter' was created, we patch the 'get_adapter' call in
-    # dbt.context.providers, so that macros that are called refer to this test adapter.
-    # This allows tests to run normal adapter macros as if reset_adapters() were not
-    # called by handle_and_check (for asserts, etc).
-    with patch.object(providers, "get_adapter", return_value=adapter):
-        with adapter.connection_named("__test"):
-            conn = adapter.connections.get_thread_connection()
-            return adapter.run_sql_for_tests(sql, fetch, conn)
+    with get_connection(adapter) as conn:
+        return adapter.run_sql_for_tests(sql, fetch, conn)
 
 
-class TestProcessingException(Exception):
-    pass
-
-
+# Get a Relation object from the identifer (name of table/view).
+# Uses the default database and schema. If you need a relation
+# with a different schema, it should be constructed in the test.
+# Uses:
+#    adapter.Relation
+#    adapter.config.credentials
+#    Relation.get_default_quote_policy
+#    Relation.get_default_include_policy
 def relation_from_name(adapter, name: str):
     """reverse-engineer a relation from a given name and
     the adapter. The relation name is split by the '.' character.
@@ -171,6 +226,10 @@ def relation_from_name(adapter, name: str):
     return relation
 
 
+# Ensure that models with different materialiations have the
+# corrent table/view.
+# Uses:
+#   adapter.list_relations_without_caching
 def check_relation_types(adapter, relation_to_type):
     """
     Relation name to table/view
@@ -189,8 +248,7 @@ def check_relation_types(adapter, relation_to_type):
         expected_relation_values[relation] = value
         schemas.add(relation.without_identifier())
 
-    with patch.object(providers, "get_adapter", return_value=adapter):
-        with adapter.connection_named("__test"):
+        with get_connection(adapter):
             for schema in schemas:
                 found_relations.extend(adapter.list_relations_without_caching(schema))
 
@@ -204,60 +262,60 @@ def check_relation_types(adapter, relation_to_type):
                 )
 
 
+# Replaces assertTablesEqual. assertManyTablesEqual can be replaced
+# by doing a separate call for each set of tables/relations.
 def check_relations_equal(adapter, relation_names):
     if len(relation_names) < 2:
         raise TestProcessingException(
             "Not enough relations to compare",
         )
     relations = [relation_from_name(adapter, name) for name in relation_names]
-
-    with patch.object(providers, "get_adapter", return_value=adapter):
-        with adapter.connection_named("_test"):
-            basis, compares = relations[0], relations[1:]
-            columns = [c.name for c in adapter.get_columns_in_relation(basis)]
-
-            for relation in compares:
-                sql = adapter.get_rows_different_sql(basis, relation, column_names=columns)
-                _, tbl = adapter.execute(sql, fetch=True)
-                num_rows = len(tbl)
-                assert (
-                    num_rows == 1
-                ), f"Invalid sql query from get_rows_different_sql: incorrect number of rows ({num_rows})"
-                num_cols = len(tbl[0])
-                assert (
-                    num_cols == 2
-                ), f"Invalid sql query from get_rows_different_sql: incorrect number of cols ({num_cols})"
-                row_count_difference = tbl[0][0]
-                assert (
-                    row_count_difference == 0
-                ), f"Got {row_count_difference} difference in row count betwen {basis} and {relation}"
-                rows_mismatched = tbl[0][1]
-                assert (
-                    rows_mismatched == 0
-                ), f"Got {rows_mismatched} different rows between {basis} and {relation}"
+    return check_relations_equal_with_relations(adapter, relations)
 
 
-def get_unique_ids_in_results(results):
-    unique_ids = []
-    for result in results:
-        unique_ids.append(result.node.unique_id)
-    return unique_ids
+# This can be used when checking relations in different schemas, by supplying
+# a list of relations. Called by 'check_relations_equal'.
+# Uses:
+#    adapter.get_columns_in_relation
+#    adapter.get_rows_different_sql
+#    adapter.execute
+def check_relations_equal_with_relations(adapter, relations):
+
+    with get_connection(adapter):
+        basis, compares = relations[0], relations[1:]
+        # Skip columns starting with "dbt_" because we don't want to
+        # compare those, since they are time sensitive
+        column_names = [
+            c.name
+            for c in adapter.get_columns_in_relation(basis)
+            if not c.name.lower().startswith("dbt_")
+        ]
+
+        for relation in compares:
+            sql = adapter.get_rows_different_sql(basis, relation, column_names=column_names)
+            _, tbl = adapter.execute(sql, fetch=True)
+            num_rows = len(tbl)
+            assert (
+                num_rows == 1
+            ), f"Invalid sql query from get_rows_different_sql: incorrect number of rows ({num_rows})"
+            num_cols = len(tbl[0])
+            assert (
+                num_cols == 2
+            ), f"Invalid sql query from get_rows_different_sql: incorrect number of cols ({num_cols})"
+            row_count_difference = tbl[0][0]
+            assert (
+                row_count_difference == 0
+            ), f"Got {row_count_difference} difference in row count betwen {basis} and {relation}"
+            rows_mismatched = tbl[0][1]
+            assert (
+                rows_mismatched == 0
+            ), f"Got {rows_mismatched} different rows between {basis} and {relation}"
 
 
-def check_result_nodes_by_name(results, names):
-    result_names = []
-    for result in results:
-        result_names.append(result.node.name)
-    assert set(names) == set(result_names)
-
-
-def check_result_nodes_by_unique_id(results, unique_ids):
-    result_unique_ids = []
-    for result in results:
-        result_unique_ids.append(result.node.unique_id)
-    assert set(unique_ids) == set(result_unique_ids)
-
-
+# Uses:
+#    adapter.update_column_sql
+#    adapter.execute
+#    adapter.commit_if_has_connection
 def update_rows(adapter, update_rows_config):
     """
     {
@@ -284,18 +342,21 @@ def update_rows(adapter, update_rows_config):
     dst_col = update_rows_config["dst_col"]
     relation = relation_from_name(adapter, name)
 
-    with patch.object(providers, "get_adapter", return_value=adapter):
-        with adapter.connection_named("_test"):
-            sql = adapter.update_column_sql(
-                dst_name=str(relation),
-                dst_column=dst_col,
-                clause=clause,
-                where_clause=where,
-            )
-            adapter.execute(sql, auto_begin=True)
-            adapter.commit_if_has_connection()
+    with get_connection(adapter):
+        sql = adapter.update_column_sql(
+            dst_name=str(relation),
+            dst_column=dst_col,
+            clause=clause,
+            where_clause=where,
+        )
+        adapter.execute(sql, auto_begin=True)
+        adapter.commit_if_has_connection()
 
 
+# This is called by the 'update_rows' function.
+# Uses:
+#    adapter.timestamp_add_sql
+#    adapter.string_add_sql
 def generate_update_clause(adapter, clause) -> str:
     """
     Called by update_rows function. Expects the "clause" dictionary
@@ -311,9 +372,8 @@ def generate_update_clause(adapter, clause) -> str:
             raise TestProcessingException("Invalid update_rows clause: no src_col")
         add_to = clause["src_col"]
         kwargs = {k: v for k, v in clause.items() if k in ("interval", "number")}
-        with patch.object(providers, "get_adapter", return_value=adapter):
-            with adapter.connection_named("_test"):
-                return adapter.timestamp_add_sql(add_to=add_to, **kwargs)
+        with get_connection(adapter):
+            return adapter.timestamp_add_sql(add_to=add_to, **kwargs)
     elif clause_type == "add_string":
         for key in ["src_col", "value"]:
             if key not in clause:
@@ -321,7 +381,38 @@ def generate_update_clause(adapter, clause) -> str:
         src_col = clause["src_col"]
         value = clause["value"]
         location = clause.get("location", "append")
-        with patch.object(providers, "get_adapter", return_value=adapter):
-            with adapter.connection_named("_test"):
-                return adapter.string_add_sql(src_col, value, location)
+        with get_connection(adapter):
+            return adapter.string_add_sql(src_col, value, location)
     return ""
+
+
+@contextmanager
+def get_connection(adapter, name="_test"):
+    # Since the 'adapter' in dbt.adapters.factory may have been replaced by execution
+    # of dbt commands since the test 'adapter' was created, we patch the 'get_adapter' call in
+    # dbt.context.providers, so that macros that are called refer to this test adapter.
+    # This allows tests to run normal adapter macros as if reset_adapters() were not
+    # called by handle_and_check (for asserts, etc).
+    with patch.object(providers, "get_adapter", return_value=adapter):
+        with adapter.connection_named(name):
+            conn = adapter.connections.get_thread_connection()
+            yield conn
+
+
+# Uses:
+#    adapter.get_columns_in_relation
+def get_relation_columns(adapter, name):
+    relation = relation_from_name(adapter, name)
+    with get_connection(adapter):
+        columns = adapter.get_columns_in_relation(relation)
+        return sorted(((c.name, c.dtype, c.char_size) for c in columns), key=lambda x: x[0])
+
+
+def check_table_does_not_exist(adapter, name):
+    columns = get_relation_columns(adapter, name)
+    assert len(columns) == 0
+
+
+def check_table_does_exist(adapter, name):
+    columns = get_relation_columns(adapter, name)
+    assert len(columns) > 0

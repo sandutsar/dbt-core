@@ -2,8 +2,7 @@ import os
 import json
 import pytest
 
-from dbt.tests.util import run_dbt
-from dbt.tests.tables import TableComparison
+from dbt.tests.util import run_dbt, check_relations_equal
 from tests.functional.graph_selection.fixtures import SelectionFixtures
 from dbt.context import providers
 from unittest.mock import patch
@@ -53,10 +52,7 @@ class TestGraphSelection(SelectionFixtures):
         results = run_dbt(["run", "--select", "users"])
         assert len(results) == 1
 
-        table_comp = TableComparison(
-            adapter=project.adapter, unique_schema=project.test_schema, database=project.database
-        )
-        table_comp.assert_tables_equal("seed", "users")
+        check_relations_equal(project.adapter, ["seed", "users"])
 
         created_tables = project.get_tables_in_schema()
         assert "users_rollup" not in created_tables
@@ -109,11 +105,8 @@ class TestGraphSelection(SelectionFixtures):
     def test_specific_model_and_children(self, project):
         results = run_dbt(["run", "--select", "users+"])
         assert len(results) == 4
-        table_comp = TableComparison(
-            adapter=project.adapter, unique_schema=project.test_schema, database=project.database
-        )
-        table_comp.assert_tables_equal("seed", "users")
-        table_comp.assert_tables_equal("summary_expected", "users_rollup")
+        check_relations_equal(project.adapter, ["seed", "users"])
+        check_relations_equal(project.adapter, ["summary_expected", "users_rollup"])
 
         created_models = project.get_tables_in_schema()
         assert "emails_alt" in created_models
@@ -125,11 +118,8 @@ class TestGraphSelection(SelectionFixtures):
     def test_specific_model_and_children_limited(self, project):
         results = run_dbt(["run", "--select", "users+1"])
         assert len(results) == 3
-        table_comp = TableComparison(
-            adapter=project.adapter, unique_schema=project.test_schema, database=project.database
-        )
-        table_comp.assert_tables_equal("seed", "users")
-        table_comp.assert_tables_equal("summary_expected", "users_rollup")
+        check_relations_equal(project.adapter, ["seed", "users"])
+        check_relations_equal(project.adapter, ["summary_expected", "users_rollup"])
 
         created_models = project.get_tables_in_schema()
         assert "emails_alt" in created_models
@@ -141,11 +131,8 @@ class TestGraphSelection(SelectionFixtures):
     def test_specific_model_and_parents(self, project):
         results = run_dbt(["run", "--select", "+users_rollup"])
         assert len(results) == 2
-        table_comp = TableComparison(
-            adapter=project.adapter, unique_schema=project.test_schema, database=project.database
-        )
-        table_comp.assert_tables_equal("seed", "users")
-        table_comp.assert_tables_equal("summary_expected", "users_rollup")
+        check_relations_equal(project.adapter, ["seed", "users"])
+        check_relations_equal(project.adapter, ["summary_expected", "users_rollup"])
 
         created_models = project.get_tables_in_schema()
         assert not ("base_users" in created_models)
@@ -155,11 +142,8 @@ class TestGraphSelection(SelectionFixtures):
     def test_specific_model_and_parents_limited(self, project):
         results = run_dbt(["run", "--select", "1+users_rollup"])
         assert len(results) == 2
-        table_comp = TableComparison(
-            adapter=project.adapter, unique_schema=project.test_schema, database=project.database
-        )
-        table_comp.assert_tables_equal("seed", "users")
-        table_comp.assert_tables_equal("summary_expected", "users_rollup")
+        check_relations_equal(project.adapter, ["seed", "users"])
+        check_relations_equal(project.adapter, ["summary_expected", "users_rollup"])
 
         created_models = project.get_tables_in_schema()
         assert not ("base_users" in created_models)
@@ -172,10 +156,7 @@ class TestGraphSelection(SelectionFixtures):
         )
         assert len(results) == 1
 
-        table_comp = TableComparison(
-            adapter=project.adapter, unique_schema=project.test_schema, database=project.database
-        )
-        table_comp.assert_tables_equal("seed", "users")
+        check_relations_equal(project.adapter, ["seed", "users"])
 
         created_models = project.get_tables_in_schema()
         assert not ("base_users" in created_models)
