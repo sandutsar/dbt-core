@@ -41,16 +41,16 @@ def _get(path, registry_base_url=None):
     # and hopefully get a valid response.  This seems to happen when there's an issue with the Hub.
     # See https://github.com/dbt-labs/dbt-core/issues/4577
     # and https://github.com/dbt-labs/dbt-core/issues/4849
-    if not validJSON(resp.json()):
+    if not validJson(resp.json()):
         raise requests.exceptions.ContentDecodingError(
             "Request error: The response is not valid json", response=resp
         )
     return resp.json()
 
 
-def validJSON(jsonData):
+def validJson(jsonData):
     try:
-        # the response quotes were converted to single quotes which is not
+        # the quotes in the response were converted to single quotes which is not
         # valid json.  json.dumps() will fix that.
         json.loads(json.dumps(jsonData))
     # We need to catch both malformed json and json = None
@@ -63,7 +63,7 @@ def validJSON(jsonData):
 
 
 def index(registry_base_url=None):
-    # this returns of a list of all packages on the Hub
+    # this returns a list of all packages on the Hub
     return _get_with_retries("api/v1/index.json", registry_base_url)
 
 
