@@ -1,7 +1,12 @@
 import functools
+import json
 import requests
 from dbt.events.functions import fire_event
-from dbt.events.types import RegistryProgressMakingGETRequest, RegistryProgressGETResponse
+from dbt.events.types import (
+    RegistryProgressMakingGETRequest,
+    RegistryProgressGETResponse,
+    RegistryMalformedResponse,
+)
 from dbt.utils import memoized, _connection_exception_retry as connection_exception_retry
 from dbt import deprecations
 import os
@@ -31,15 +36,25 @@ def _get(path, registry_base_url=None):
     fire_event(RegistryProgressGETResponse(url=url, resp_code=resp.status_code))
     resp.raise_for_status()
 
-    # It is unexpected for the content of the response to be None so if it is, raising this error
-    # will cause this function to retry (if called within _get_with_retries) and hopefully get
-    # a response.  This seems to happen when there's an issue with the Hub.
+    # It is unexpected for the content of the response to be None or malformed.  If it is,
+    # raising this error will cause this function to retry (if called within _get_with_retries)
+    # and hopefully get a valid response.  This seems to happen when there's an issue with the Hub.
     # See https://github.com/dbt-labs/dbt-core/issues/4577
-    if resp.json() is None:
+    if not validJSON(resp.json()):
         raise requests.exceptions.ContentDecodingError(
-            "Request error: The response is None", response=resp
+            "Request error: The response is not valid json", response=resp
         )
     return resp.json()
+
+
+def validJSON(jsonData):
+    try:
+        json.loads(jsonData)
+    # this will catch both malformed json and json = None
+    except (ValueError, TypeError) as exc:
+        fire_event(RegistryMalformedResponse(jsonData=jsonData, exc=exc))
+        return False
+    return True
 
 
 def index(registry_base_url=None):

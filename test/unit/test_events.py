@@ -416,6 +416,7 @@ sample_values = [
     EventBufferFull(),
     RecordRetryException(exc=Exception('')),
     UnitTestInfo(msg=''),
+    RegistryMalformedResponse(jsonData="",exc=Exception('')),
 ]
 
 

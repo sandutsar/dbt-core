@@ -2393,6 +2393,18 @@ class RecordRetryException(DebugLevel):
         return f"External call exception: {self.exc}"
 
 
+@dataclass
+class RegistryMalformedResponse(DebugLevel):
+    jsonData: str
+    exc: Exception
+    code: str = "M022"
+
+    def message(self) -> str:
+        prefix = f"Malformed json: {self.jsonData}"
+        error = f"Exception: {self.exc}"
+        return f"{prefix}\n{error}"
+
+
 # since mypy doesn't run on every file we need to suggest to mypy that every
 # class gets instantiated. But we don't actually want to run this code.
 # making the conditional `if False` causes mypy to skip it as dead code so
@@ -2747,3 +2759,4 @@ if 1 == 0:
     GeneralWarningException(exc=Exception(""), log_fmt="")
     EventBufferFull()
     RecordRetryException(exc=Exception(""))
+    RegistryMalformedResponse(jsonData="", exc=Exception(""))
