@@ -264,19 +264,20 @@ class TestSourceFresherRun(SuccessfulSourceFreshnessTest):
 
     def test_source_fresher_run_warn(self, project):
         self.run_dbt_with_vars(project, ["run"])
+        self._set_updated_at_to(project, timedelta(hours=-17))
         previous_state_results = self.run_dbt_with_vars(
             project,
             ["source", "freshness", "-o", "previous_state/sources.json"],
             expect_pass=False,
         )
-        self._assert_freshness_results("previous_state/sources.json", "error")
+        self._assert_freshness_results("previous_state/sources.json", "warn")
         copy_to_previous_state()
 
-        self._set_updated_at_to(project, timedelta(hours=-2))
+        self._set_updated_at_to(project, timedelta(hours=-11))
         current_state_results = self.run_dbt_with_vars(
             project, ["source", "freshness", "-o", "target/sources.json"]
         )
-        self._assert_freshness_results("target/sources.json", "pass")
+        self._assert_freshness_results("target/sources.json", "warn")
 
         assert previous_state_results[0].max_loaded_at < current_state_results[0].max_loaded_at
 
