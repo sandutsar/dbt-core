@@ -37,10 +37,13 @@ def _get(path, registry_base_url=None):
     # Since we control what we expect the HUB to return, this is safe.
     # See https://github.com/dbt-labs/dbt-core/issues/4577
     # and https://github.com/dbt-labs/dbt-core/issues/4849
-    if not isinstance(resp.json(), list) and not isinstance(resp.json(), dict):
+    json_response = resp.json()
+    if (json_response is None) or (
+        not isinstance(json_response, list) and not isinstance(json_response, dict)
+    ):
         error_msg = f"Request error: The response is not valid json: {resp.text}"
         raise requests.exceptions.ContentDecodingError(error_msg, response=resp)
-    return resp.json()
+    return json_response
 
 
 def index(registry_base_url=None):
