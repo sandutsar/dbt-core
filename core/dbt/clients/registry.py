@@ -1,12 +1,7 @@
 import functools
-import json
 import requests
 from dbt.events.functions import fire_event
-from dbt.events.types import (
-    RegistryProgressMakingGETRequest,
-    RegistryProgressGETResponse,
-    RegistryMalformedResponse,
-)
+from dbt.events.types import RegistryProgressMakingGETRequest, RegistryProgressGETResponse
 from dbt.utils import memoized, _connection_exception_retry as connection_exception_retry
 from dbt import deprecations
 import os
@@ -36,30 +31,16 @@ def _get(path, registry_base_url=None):
     fire_event(RegistryProgressGETResponse(url=url, resp_code=resp.status_code))
     resp.raise_for_status()
 
-    # It is unexpected for the content of the response to be None or malformed.  If it is,
-    # raising this error will cause this function to retry (if called within _get_with_retries)
+    # The response should either be a list or a dictionary.  Anything else is unexpected, raise error.
+    # Raising this error will cause this function to retry (if called within _get_with_retries)
     # and hopefully get a valid response.  This seems to happen when there's an issue with the Hub.
+    # Since we control what we expect the HUB to return, this is safe.
     # See https://github.com/dbt-labs/dbt-core/issues/4577
     # and https://github.com/dbt-labs/dbt-core/issues/4849
-    if not validJson(resp.json()):
-        raise requests.exceptions.ContentDecodingError(
-            "Request error: The response is not valid json", response=resp
-        )
+    if not isinstance(resp.json(), list) and not isinstance(resp.json(), dict):
+        error_msg = f"Request error: The response is not valid json: {resp.text}"
+        raise requests.exceptions.ContentDecodingError(error_msg, response=resp)
     return resp.json()
-
-
-def validJson(jsonData):
-    try:
-        # the quotes in the response were converted to single quotes which is not
-        # valid json.  json.dumps() will fix that.
-        json.loads(json.dumps(jsonData))
-    # We need to catch both malformed json and json = None
-    except (ValueError, TypeError) as exc:
-        # This event will allow us to see the actual json causing issues if more deps
-        # issues crop up.  Otherwise we're flying a little blind.
-        fire_event(RegistryMalformedResponse(jsonData=jsonData, exc=exc))
-        return False
-    return True
 
 
 def index(registry_base_url=None):
@@ -70,11 +51,8 @@ def index(registry_base_url=None):
 index_cached = memoized(index)
 
 
-def packages(registry_base_url=None):
-    return _get_with_retries("api/v1/packages.json", registry_base_url)
-
-
 def package(name, registry_base_url=None):
+    # expect back a dictionary
     response = _get_with_retries("api/v1/{}.json".format(name), registry_base_url)
 
     # Either redirectnamespace or redirectname in the JSON response indicate a redirect
@@ -101,6 +79,7 @@ def package(name, registry_base_url=None):
 
 
 def package_version(name, version, registry_base_url=None):
+    # expect back a dictionary
     return _get_with_retries("api/v1/{}/{}.json".format(name, version), registry_base_url)
 
 
