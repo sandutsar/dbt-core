@@ -35,6 +35,9 @@ from unittest.mock import patch
 #   check_relation_types (table/view)
 #   check_relations_equal
 #   check_relations_equal_with_relations
+#   check_table_does_exist
+#   check_table_does_not_exist
+#   get_relation_columns
 #   update_rows
 #      generate_update_clause
 

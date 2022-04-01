@@ -63,5 +63,4 @@ class BaseSourcesTest:
             "test_loaded_at": project.adapter.quote("updated_at"),
         }
         cmd.extend(["--vars", yaml.safe_dump(vars_dict)])
-        print(f"--- run_dbt_with_vars. args: {args}, kwargs: {kwargs}")
         return run_dbt(cmd, *args, **kwargs)

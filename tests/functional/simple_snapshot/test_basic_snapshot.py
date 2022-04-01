@@ -307,12 +307,12 @@ class TestBasicUpdatedAtCheckCols(UpdatedAtCheckCols):
     def test_updated_at_snapshot(self, project):
         snapshot_setup(project, num_snapshot_models=2)
 
-        snapshot_actual_relation = relation_from_name(project.adapter, "snapshot_expected")
+        snapshot_expected_relation = relation_from_name(project.adapter, "snapshot_expected")
         revived_records = project.run_sql(
             """
             select id, updated_at, dbt_valid_from from {}
             """.format(
-                snapshot_actual_relation
+                snapshot_expected_relation
             ),
             fetch="all",
         )
