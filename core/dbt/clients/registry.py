@@ -19,12 +19,18 @@ def _get_url(url, registry_base_url=None):
     return "{}{}".format(registry_base_url, url)
 
 
-def _get_with_retries(path, registry_base_url=None):
-    get_fn = functools.partial(_get, path, registry_base_url)
+def _get_with_retries(path, registry_base_url=None, expected_type=dict, expected_keys=[]):
+    get_fn = functools.partial(_get, path, registry_base_url, expected_type, expected_keys)
     return connection_exception_retry(get_fn, 5)
 
 
-def _get(path, registry_base_url=None):
+def _get(path, registry_base_url=None, expected_type=dict, expected_keys=[]):
+    """
+    path: request path to be appended to registry_base_url
+    registry_base_url: Optional
+    expected_type: Required, List or Dict
+    expected_keys: Optional, list of keys in response
+    """
     url = _get_url(path, registry_base_url)
     fire_event(RegistryProgressMakingGETRequest(url=url))
     resp = requests.get(url, timeout=30)
@@ -38,25 +44,35 @@ def _get(path, registry_base_url=None):
     # See https://github.com/dbt-labs/dbt-core/issues/4577
     # and https://github.com/dbt-labs/dbt-core/issues/4849
     json_response = resp.json()
-    if (json_response is None) or (
-        not isinstance(json_response, list) and not isinstance(json_response, dict)
-    ):
+    if json_response is None or not isinstance(json_response, expected_type):
         error_msg = f"Request error: The response is not valid json: {resp.text}"
+        raise requests.exceptions.ContentDecodingError(error_msg, response=resp)
+
+    # sanity check for specific keys if we're expected a dictionary in response
+    if isinstance(json_response, dict) and not set(expected_keys).issubset(json_response):
+        error_msg = f"Request error: The response did not contain the expected keys ({expected_keys}): {resp.text}"
         raise requests.exceptions.ContentDecodingError(error_msg, response=resp)
     return json_response
 
 
 def index(registry_base_url=None):
     # this returns a list of all packages on the Hub
-    return _get_with_retries("api/v1/index.json", registry_base_url)
+    expected_type = list
+    return _get_with_retries("api/v1/index.json", registry_base_url, expected_type)
 
 
 index_cached = memoized(index)
 
 
 def package(name, registry_base_url=None):
-    # expect back a dictionary
-    response = _get_with_retries("api/v1/{}.json".format(name), registry_base_url)
+    # returns a dictionary of metadata for all versions of a package
+    expected_type = dict
+    expected_keys = [
+        "versions"
+    ]  # since this is only called by get_available_versions this is the only key we access
+    response = _get_with_retries(
+        "api/v1/{}.json".format(name), registry_base_url, expected_type, expected_keys
+    )
 
     # Either redirectnamespace or redirectname in the JSON response indicate a redirect
     # redirectnamespace redirects based on package ownership
@@ -82,8 +98,12 @@ def package(name, registry_base_url=None):
 
 
 def package_version(name, version, registry_base_url=None):
-    # expect back a dictionary
-    return _get_with_retries("api/v1/{}/{}.json".format(name, version), registry_base_url)
+    # returns a dictionary of metadata for a single version of a package
+    expected_type = dict
+    expected_keys = ["name", "packages", "downloads"]
+    return _get_with_retries(
+        "api/v1/{}/{}.json".format(name, version), registry_base_url, expected_type, expected_keys
+    )
 
 
 def get_available_versions(name):
