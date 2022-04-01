@@ -12,77 +12,59 @@ else:
     DEFAULT_REGISTRY_BASE_URL = "https://hub.getdbt.com/"
 
 
-def _get_url(url, registry_base_url=None):
+def _get_url(name, registry_base_url=None):
     if registry_base_url is None:
         registry_base_url = DEFAULT_REGISTRY_BASE_URL
+    url = "api/v1/{}.json".format(name)
 
     return "{}{}".format(registry_base_url, url)
 
 
-def _get_with_retries(path, registry_base_url=None):
-    get_fn = functools.partial(_get_cached, path, registry_base_url)
+def _get_with_retries(name, registry_base_url=None):
+    get_fn = functools.partial(_get_cached, name, registry_base_url)
     return connection_exception_retry(get_fn, 5)
 
 
-def _get(path, registry_base_url=None, expected_type=dict, expected_keys=[]):
+def _get(name, registry_base_url=None):
     """
-    path: request path to be appended to registry_base_url
+    name: name of the package
     registry_base_url: Optional
-    expected_type: Required, List or Dict
-    expected_keys: Optional, list of keys in response
     """
-    url = _get_url(path, registry_base_url)
+    url = _get_url(name, registry_base_url)
     fire_event(RegistryProgressMakingGETRequest(url=url))
     resp = requests.get(url, timeout=30)
     fire_event(RegistryProgressGETResponse(url=url, resp_code=resp.status_code))
     resp.raise_for_status()
 
-    # The response should either be a list or a dictionary.  Anything else is unexpected, raise error.
+    # The response should either be a dictionary.  Anything else is unexpected, raise error.
     # Raising this error will cause this function to retry (if called within _get_with_retries)
     # and hopefully get a valid response.  This seems to happen when there's an issue with the Hub.
     # Since we control what we expect the HUB to return, this is safe.
     # See https://github.com/dbt-labs/dbt-core/issues/4577
     # and https://github.com/dbt-labs/dbt-core/issues/4849
-    json_response = resp.json()
-    if json_response is None or not isinstance(json_response, expected_type):
-        error_msg = f"Request error: The response is not valid json: {resp.text}"
+    response = resp.json()
+    if response is None:
+        error_msg = "Request error: The response is None"
         raise requests.exceptions.ContentDecodingError(error_msg, response=resp)
 
-    # sanity check for specific keys if we're expected a dictionary in response
-    if isinstance(json_response, dict) and not set(expected_keys).issubset(json_response):
-        error_msg = f"Request error: The response did not contain the expected keys ({expected_keys}): {resp.text}"
+    if not isinstance(response, dict):
+        error_msg = (
+            f"Request error: The response type of {type(response)} is not valid: {resp.text}"
+        )
         raise requests.exceptions.ContentDecodingError(error_msg, response=resp)
-    return json_response
 
-
-_get_cached = memoized(_get)
-
-
-def index(registry_base_url=None):
-    # this returns a list of all packages on the Hub
-    expected_type = list
-    return _get_with_retries("api/v1/index.json", registry_base_url, expected_type)
-
-
-# is this redundant, now that all _get responses are being cached?
-index_cached = memoized(index)
-
-
-def package(name, registry_base_url=None):
-    # returns a dictionary of metadata for all versions of a package
-    expected_type = dict
-    expected_keys = [
-        "versions"
-    ]  # since this is only called by get_available_versions this is the only key we access
-    response = _get_with_retries(
-        "api/v1/{}.json".format(name), registry_base_url, expected_type, expected_keys
-    )
+    expected_keys = ["name", "versions"]
+    expected_version_keys = ["name", "packages", "downloads"]
+    if not set(expected_keys).issubset(response) and not set(expected_version_keys).issubset(
+        response["versions"]
+    ):
+        error_msg = f"Request error: Expected the response to contain keys {expected_keys} but one or more are missing: {resp.text}"
+        raise requests.exceptions.ContentDecodingError(error_msg, response=resp)
 
     # Either redirectnamespace or redirectname in the JSON response indicate a redirect
     # redirectnamespace redirects based on package ownership
     # redirectname redirects based on package name
     # Both can be present at the same time, or neither. Fails gracefully to old name
-
     if ("redirectnamespace" in response) or ("redirectname" in response):
 
         if ("redirectnamespace" in response) and response["redirectnamespace"] is not None:
@@ -101,11 +83,53 @@ def package(name, registry_base_url=None):
     return response
 
 
+_get_cached = memoized(_get)
+
+
+def package(name, registry_base_url=None):
+    # returns a dictionary of metadata for all versions of a package
+    response = _get_with_retries(name, registry_base_url)
+    return response["versions"]
+
+
 def package_version(name, version, registry_base_url=None):
+    # returns the metadata of a specific version of a package
     response = package(name, registry_base_url)
-    return response["versions"][version]
+    return response[version]
 
 
 def get_available_versions(name):
+    # returns a list of all available versions of a package
     response = package(name)
-    return list(response["versions"])
+    return list(response)
+
+
+def _get_index(registry_base_url=None):
+
+    url = _get_url("index", registry_base_url)
+    fire_event(RegistryProgressMakingGETRequest(url=url))
+    resp = requests.get(url, timeout=30)
+    fire_event(RegistryProgressGETResponse(url=url, resp_code=resp.status_code))
+    resp.raise_for_status()
+
+    # The response should be a list.  Anything else is unexpected, raise error.
+    # Raising this error will cause this function to retry and hopefully get a valid response.
+
+    response = resp.json()
+
+    if not isinstance(response, list):  # This will also catch Nonetype
+        error_msg = (
+            f"Request error: The response type of {type(response)} is not valid: {resp.text}"
+        )
+        raise requests.exceptions.ContentDecodingError(error_msg, response=resp)
+
+    return response
+
+
+def index(registry_base_url=None):
+    # this returns a list of all packages on the Hub
+    get_index_fn = functools.partial(_get_index, registry_base_url)
+    return connection_exception_retry(get_index_fn, 5)
+
+
+index_cached = memoized(index)
