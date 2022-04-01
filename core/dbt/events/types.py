@@ -292,6 +292,25 @@ class GitProgressCheckedOutAt(DebugLevel):
 
 
 @dataclass
+class RegistryIndexProgressMakingGETRequest(DebugLevel):
+    url: str
+    code: str = "M022"
+
+    def message(self) -> str:
+        return f"Making package index registry request: GET {self.url}"
+
+
+@dataclass
+class RegistryIndexProgressGETResponse(DebugLevel):
+    url: str
+    resp_code: int
+    code: str = "M023"
+
+    def message(self) -> str:
+        return f"Response from registry index: GET {self.url} {self.resp_code}"
+
+
+@dataclass
 class RegistryProgressMakingGETRequest(DebugLevel):
     url: str
     code: str = "M008"
@@ -2422,6 +2441,8 @@ if 1 == 0:
     GitNothingToDo(sha="")
     GitProgressUpdatedCheckoutRange(start_sha="", end_sha="")
     GitProgressCheckedOutAt(end_sha="")
+    RegistryIndexProgressMakingGETRequest(url="")
+    RegistryIndexProgressGETResponse(url="", resp_code=1234)
     RegistryProgressMakingGETRequest(url="")
     RegistryProgressGETResponse(url="", resp_code=1234)
     SystemErrorRetrievingModTime(path="")

@@ -402,6 +402,8 @@ sample_values = [
     PrintDebugStackTrace(),
     MainReportArgs(args={}),
     RegistryProgressMakingGETRequest(url=''),
+    RegistryIndexProgressMakingGETRequest(url=""),
+    RegistryIndexProgressGETResponse(url="", resp_code=1),
     DepsUTD(),
     PartialParsingNotEnabled(),
     SQlRunnerException(exc=Exception('')),
