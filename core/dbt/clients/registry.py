@@ -19,8 +19,8 @@ def _get_url(url, registry_base_url=None):
     return "{}{}".format(registry_base_url, url)
 
 
-def _get_with_retries(path, registry_base_url=None, expected_type=dict, expected_keys=[]):
-    get_fn = functools.partial(_get, path, registry_base_url, expected_type, expected_keys)
+def _get_with_retries(path, registry_base_url=None):
+    get_fn = functools.partial(_get_cached, path, registry_base_url)
     return connection_exception_retry(get_fn, 5)
 
 
@@ -55,12 +55,16 @@ def _get(path, registry_base_url=None, expected_type=dict, expected_keys=[]):
     return json_response
 
 
+_get_cached = memoized(_get)
+
+
 def index(registry_base_url=None):
     # this returns a list of all packages on the Hub
     expected_type = list
     return _get_with_retries("api/v1/index.json", registry_base_url, expected_type)
 
 
+# is this redundant, now that all _get responses are being cached?
 index_cached = memoized(index)
 
 
@@ -98,12 +102,8 @@ def package(name, registry_base_url=None):
 
 
 def package_version(name, version, registry_base_url=None):
-    # returns a dictionary of metadata for a single version of a package
-    expected_type = dict
-    expected_keys = ["name", "packages", "downloads"]
-    return _get_with_retries(
-        "api/v1/{}/{}.json".format(name, version), registry_base_url, expected_type, expected_keys
-    )
+    response = package(name, registry_base_url)
+    return response["versions"][version]
 
 
 def get_available_versions(name):
