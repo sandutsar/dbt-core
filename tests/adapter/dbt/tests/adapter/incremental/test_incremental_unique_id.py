@@ -1,7 +1,5 @@
 import pytest
 from dbt.tests.util import run_dbt, check_relations_equal
-
-# from dbt.tests.tables import TableComparison
 from dbt.contracts.results import RunStatus
 from collections import namedtuple
 from pathlib import Path
@@ -392,10 +390,6 @@ class BaseIncrementalUniqueKey:
         if expected_fields.opt_model_count and test_case_fields.opt_model_count:
             assert expected_fields.opt_model_count == test_case_fields.opt_model_count
         # 6. result table should match intended result set (itself a relation)
-        # table_comp = TableComparison(
-        #     adapter=project.adapter, unique_schema=project.test_schema, database=project.database
-        # )
-        # table_comp.assert_tables_equal(expected_fields.relation, test_case_fields.relation)
         check_relations_equal(
             project.adapter, [expected_fields.relation, test_case_fields.relation]
         )
