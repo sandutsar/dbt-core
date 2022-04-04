@@ -7,12 +7,9 @@ from datetime import datetime, timedelta
 import dbt.version
 from tests.functional.sources.common_source_setup import BaseSourcesTest
 
-# from tests.functional.sources.fixtures import (
-#     error_models__schema_yml,
-#     error_models__model_sql,
-#     filtered_models__schema_yml,
-#     override_freshness_models__schema_yml,
-# )
+from tests.functional.sources.fixtures import (
+    error_models__schema_yml,
+)
 
 
 # TODO: We may create utility classes to handle reusable fixtures.
@@ -323,6 +320,41 @@ class TestSourceFresherRun(SuccessfulSourceFreshnessTest):
         )
         nodes = set([elem.node.name for elem in source_fresher_plus_results])
         assert nodes == {"descendant_model"}
+
+
+class TestSourceFresherRuntimeError(SuccessfulSourceFreshnessTest):
+    @pytest.fixture(scope="class")
+    def models(self):
+        return {
+            "schema.yml": error_models__schema_yml,
+        }
+
+    def test_runtime_error_states(self, project):
+        self.run_dbt_with_vars(project, ["run"])
+        previous_state_results = self.run_dbt_with_vars(
+            project,
+            ["source", "freshness", "-o", "previous_state/sources.json"],
+            expect_pass=False,
+        )
+        assert len(previous_state_results) == 1
+        assert previous_state_results[0].status == "runtime error"
+        copy_to_previous_state()
+
+        self._set_updated_at_to(project, timedelta(hours=-1))
+        current_state_results = self.run_dbt_with_vars(
+            project, ["source", "freshness", "-o", "target/sources.json"]
+        )
+        assert len(current_state_results) == 1
+        assert current_state_results[0].status == "runtime error"
+
+        assert not hasattr(previous_state_results[0], "max_loaded_at")
+        assert not hasattr(current_state_results[0], "max_loaded_at")
+
+        source_fresher_results = self.run_dbt_with_vars(
+            project,
+            ["test", "-s", "source_status:fresher", "--defer", "--state", "previous_state"],
+        )
+        assert source_fresher_results.results == []
 
 
 # TODO: Matt's tests
