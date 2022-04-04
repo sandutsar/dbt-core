@@ -8,7 +8,7 @@ import yaml
 
 import dbt.flags as flags
 from dbt.config.runtime import RuntimeConfig
-from dbt.adapters.factory import get_adapter, register_adapter, reset_adapters
+from dbt.adapters.factory import get_adapter, register_adapter, reset_adapters, get_adapter_by_type
 from dbt.events.functions import setup_event_logger
 from dbt.tests.util import write_file, run_sql_with_adapter, TestProcessingException
 
@@ -269,7 +269,7 @@ class TestProjInfo:
         self,
         project_root,
         profiles_dir,
-        adapter,
+        adapter_type,
         test_dir,
         shared_data_dir,
         test_data_dir,
@@ -279,13 +279,17 @@ class TestProjInfo:
     ):
         self.project_root = project_root
         self.profiles_dir = profiles_dir
-        self.adapter = adapter
+        self.adapter_type = adapter_type
         self.test_dir = test_dir
         self.shared_data_dir = shared_data_dir
         self.test_data_dir = test_data_dir
         self.test_schema = test_schema
         self.database = database
         self.test_config = test_config
+
+    @property
+    def adapter(self):
+        return get_adapter_by_type(self.adapter_type)
 
     # Run sql from a path
     def run_sql_file(self, sql_path, fetch=None):
@@ -349,7 +353,7 @@ def project(
     project = TestProjInfo(
         project_root=project_root,
         profiles_dir=profiles_root,
-        adapter=adapter,
+        adapter_type=adapter.type(),
         test_dir=request.fspath.dirname,
         shared_data_dir=shared_data_dir,
         test_data_dir=test_data_dir,

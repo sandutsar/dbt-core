@@ -11,8 +11,6 @@ from dbt.logger import log_manager
 from dbt.contracts.graph.manifest import Manifest
 from dbt.events.functions import fire_event, capture_stdout_logs, stop_capture_stdout_logs
 from dbt.events.test_types import IntegrationTestDebug
-from dbt.context import providers
-from unittest.mock import patch
 
 # =============================================================================
 # Test utilities
@@ -391,15 +389,9 @@ def generate_update_clause(adapter, clause) -> str:
 
 @contextmanager
 def get_connection(adapter, name="_test"):
-    # Since the 'adapter' in dbt.adapters.factory may have been replaced by execution
-    # of dbt commands since the test 'adapter' was created, we patch the 'get_adapter' call in
-    # dbt.context.providers, so that macros that are called refer to this test adapter.
-    # This allows tests to run normal adapter macros as if reset_adapters() were not
-    # called by handle_and_check (for asserts, etc).
-    with patch.object(providers, "get_adapter", return_value=adapter):
-        with adapter.connection_named(name):
-            conn = adapter.connections.get_thread_connection()
-            yield conn
+    with adapter.connection_named(name):
+        conn = adapter.connections.get_thread_connection()
+        yield conn
 
 
 # Uses:
