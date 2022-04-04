@@ -329,6 +329,45 @@ class RegistryProgressGETResponse(DebugLevel):
         return f"Response from registry: GET {self.url} {self.resp_code}"
 
 
+@dataclass
+class RegistryResponseUnexpectedType(DebugLevel):
+    response: str
+    code: str = "M024"
+
+    def message(self) -> str:
+        return f"Response was None: {self.response}"
+
+
+@dataclass
+class RegistryResponseMissingTopKeys(DebugLevel):
+    response: str
+    code: str = "M025"
+
+    def message(self) -> str:
+        # expected/actual keys logged in exception
+        return f"Response missing top level keys: {self.response}"
+
+
+@dataclass
+class RegistryResponseMissingNestedKeys(DebugLevel):
+    response: str
+    code: str = "M026"
+
+    def message(self) -> str:
+        # expected/actual keys logged in exception
+        return f"Response missing nested keys: {self.response}"
+
+
+@dataclass
+class RegistryResponseExtraNestedKeys(DebugLevel):
+    response: str
+    code: str = "M027"
+
+    def message(self) -> str:
+        # expected/actual keys logged in exception
+        return f"Response contained inconsistent keys: {self.response}"
+
+
 # TODO this was actually `logger.exception(...)` not `logger.error(...)`
 @dataclass
 class SystemErrorRetrievingModTime(ErrorLevel):
@@ -2445,6 +2484,10 @@ if 1 == 0:
     RegistryIndexProgressGETResponse(url="", resp_code=1234)
     RegistryProgressMakingGETRequest(url="")
     RegistryProgressGETResponse(url="", resp_code=1234)
+    RegistryResponseUnexpectedType(response=""),
+    RegistryResponseMissingTopKeys(response=""),
+    RegistryResponseMissingNestedKeys(response=""),
+    RegistryResponseExtraNestedKeys(response=""),
     SystemErrorRetrievingModTime(path="")
     SystemCouldNotWrite(path="", reason="", exc=Exception(""))
     SystemExecutingCmd(cmd=[""])

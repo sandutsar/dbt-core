@@ -1,4 +1,5 @@
 import functools
+from typing import Any, Dict, List
 import requests
 from dbt.events.functions import fire_event
 from dbt.events.types import (
@@ -6,6 +7,10 @@ from dbt.events.types import (
     RegistryProgressGETResponse,
     RegistryIndexProgressMakingGETRequest,
     RegistryIndexProgressGETResponse,
+    RegistryResponseUnexpectedType,
+    RegistryResponseMissingTopKeys,
+    RegistryResponseMissingNestedKeys,
+    RegistryResponseExtraNestedKeys,
 )
 from dbt.utils import memoized, _connection_exception_retry as connection_exception_retry
 from dbt import deprecations
@@ -33,6 +38,7 @@ def _get_with_retries(package_name, registry_base_url=None):
 def _get(package_name, registry_base_url=None):
     url = _get_url(package_name, registry_base_url)
     fire_event(RegistryProgressMakingGETRequest(url=url))
+    # all exceptions from requests get caught in the retry logic so no need to wrap this here
     resp = requests.get(url, timeout=30)
     fire_event(RegistryProgressGETResponse(url=url, resp_code=resp.status_code))
     resp.raise_for_status()
@@ -47,16 +53,40 @@ def _get(package_name, registry_base_url=None):
 
     if not isinstance(response, dict):  # This will also catch Nonetype
         error_msg = (
-            f"Request error: The response type of {type(response)} is not valid: {resp.text}"
+            f"Request error: Expected a response type of <dict> but got {type(response)} instead"
         )
+        fire_event(RegistryResponseUnexpectedType(response=response))
         raise requests.exceptions.ContentDecodingError(error_msg, response=resp)
 
-    expected_keys = ["name", "versions"]
-    expected_version_keys = ["name", "packages", "downloads"]
-    if not set(expected_keys).issubset(response) and not set(expected_version_keys).issubset(
-        response["versions"]
-    ):
-        error_msg = f"Request error: Expected the response to contain keys {expected_keys} but one or more are missing: {resp.text}"
+    # check for expected top level keys
+    expected_keys = {"name", "versions"}
+    if not expected_keys.issubset(response):
+        error_msg = (
+            f"Request error: Expected the response to contain keys {expected_keys} "
+            f"but is missing {expected_keys.difference(set(response))}"
+        )
+        fire_event(RegistryResponseMissingTopKeys(response=response))
+        raise requests.exceptions.ContentDecodingError(error_msg, response=resp)
+
+    # check for the keys we need nested under each version
+    expected_version_keys = {"name", "packages", "downloads"}
+    all_keys = set().union(*(response["versions"][d] for d in response["versions"]))
+    if not expected_version_keys.issubset(all_keys):
+        error_msg = (
+            "Request error: Expected the response for the version to contain keys "
+            f"{expected_version_keys} but is missing {expected_version_keys.difference(all_keys)}"
+        )
+        fire_event(RegistryResponseMissingNestedKeys(response=response))
+        raise requests.exceptions.ContentDecodingError(error_msg, response=resp)
+
+    # all version responses should contain identical keys.
+    has_extra_keys = set().difference(*(response["versions"][d] for d in response["versions"]))
+    if has_extra_keys:
+        error_msg = (
+            "Request error: Keys for all versions do not match.  Found extra key(s) "
+            f"of {has_extra_keys}."
+        )
+        fire_event(RegistryResponseExtraNestedKeys(response=response))
         raise requests.exceptions.ContentDecodingError(error_msg, response=resp)
 
     # Either redirectnamespace or redirectname in the JSON response indicate a redirect
@@ -84,19 +114,19 @@ def _get(package_name, registry_base_url=None):
 _get_cached = memoized(_get)
 
 
-def package(package_name, registry_base_url=None):
+def package(package_name, registry_base_url=None) -> Dict[str, Any]:
     # returns a dictionary of metadata for all versions of a package
     response = _get_with_retries(package_name, registry_base_url)
     return response["versions"]
 
 
-def package_version(package_name, version, registry_base_url=None):
+def package_version(package_name, version, registry_base_url=None) -> Dict[str, Any]:
     # returns the metadata of a specific version of a package
     response = package(package_name, registry_base_url)
     return response[version]
 
 
-def get_available_versions(package_name):
+def get_available_versions(package_name) -> List["str"]:
     # returns a list of all available versions of a package
     response = package(package_name)
     return list(response)
@@ -106,6 +136,7 @@ def _get_index(registry_base_url=None):
 
     url = _get_url("index", registry_base_url)
     fire_event(RegistryIndexProgressMakingGETRequest(url=url))
+    # all exceptions from requests get caught in the retry logic so no need to wrap this here
     resp = requests.get(url, timeout=30)
     fire_event(RegistryIndexProgressGETResponse(url=url, resp_code=resp.status_code))
     resp.raise_for_status()
@@ -124,7 +155,7 @@ def _get_index(registry_base_url=None):
     return response
 
 
-def index(registry_base_url=None):
+def index(registry_base_url=None) -> List[str]:
     # this returns a list of all packages on the Hub
     get_index_fn = functools.partial(_get_index, registry_base_url)
     return connection_exception_retry(get_index_fn, 5)
