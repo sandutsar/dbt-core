@@ -4,8 +4,6 @@ import pytest
 
 from dbt.tests.util import run_dbt, check_relations_equal
 from tests.functional.graph_selection.fixtures import SelectionFixtures
-from dbt.context import providers
-from unittest.mock import patch
 
 
 selectors_yml = """
@@ -20,14 +18,13 @@ selectors_yml = """
 
 def assert_correct_schemas(project):
     adapter = project.adapter
-    with patch.object(providers, "get_adapter", return_value=adapter):
-        with adapter.connection_named("__test"):
-            exists = adapter.check_schema_exists(project.database, project.test_schema)
-            assert exists
+    with adapter.connection_named("__test"):
+        exists = adapter.check_schema_exists(project.database, project.test_schema)
+        assert exists
 
-            schema = project.test_schema + "_and_then"
-            exists = adapter.check_schema_exists(project.database, schema)
-            assert not exists
+        schema = project.test_schema + "_and_then"
+        exists = adapter.check_schema_exists(project.database, schema)
+        assert not exists
 
 
 def clear_schema(project):
