@@ -1,7 +1,7 @@
 import pytest
-from dbt.tests.util import run_dbt
-from dbt.exceptions import CompilationException
 
+from dbt.exceptions import CompilationError
+from dbt.tests.util import run_dbt
 
 descendant_sql = """
 -- should be ref('model')
@@ -24,5 +24,5 @@ def models():
 
 def test_undefined_value(project):
     # Tests that a project with an invalid reference fails
-    with pytest.raises(CompilationException):
+    with pytest.raises(CompilationError):
         run_dbt(["compile"])

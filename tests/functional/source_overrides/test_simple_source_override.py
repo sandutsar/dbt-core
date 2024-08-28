@@ -1,8 +1,9 @@
 from datetime import datetime, timedelta
+
 import pytest
 
-from dbt.tests.util import run_dbt, update_config_file, check_relations_equal
 from dbt.tests.fixtures.project import write_project_files
+from dbt.tests.util import check_relations_equal, run_dbt, update_config_file
 from tests.functional.source_overrides.fixtures import (  # noqa: F401
     local_dependency,
     models__schema_yml,
@@ -78,7 +79,7 @@ class TestSourceOverride:
             "quoted_columns": quoted_columns,
         }
 
-        raw_sql = """INSERT INTO {schema}.{source}
+        raw_code = """INSERT INTO {schema}.{source}
             ({quoted_columns})
         VALUES (
             'blue',{id},'Jake','abc@example.com','192.168.1.1','{time}'
@@ -86,7 +87,7 @@ class TestSourceOverride:
             **kwargs
         )
 
-        project.run_sql(raw_sql)
+        project.run_sql(raw_code)
 
         return insert_id + 1
 

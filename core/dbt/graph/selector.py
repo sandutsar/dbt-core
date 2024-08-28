@@ -1,30 +1,22 @@
-from typing import Set, List, Optional, Tuple
+from typing import List, Optional, Set, Tuple
+
+from dbt import selected_resources
+from dbt.contracts.graph.manifest import Manifest
+from dbt.contracts.graph.nodes import GraphMemberNode
+from dbt.contracts.state import PreviousState
+from dbt.events.types import NoNodesForSelectionCriteria, SelectorReportInvalidSelector
+from dbt.exceptions import DbtInternalError, InvalidSelectorError
+from dbt.node_types import NodeType
+from dbt_common.events.functions import fire_event, warn_or_error
 
 from .graph import Graph, UniqueId
 from .queue import GraphQueue
 from .selector_methods import MethodManager
-from .selector_spec import SelectionCriteria, SelectionSpec, IndirectSelection
-
-from dbt.events.functions import fire_event
-from dbt.events.types import SelectorReportInvalidSelector
-from dbt.node_types import NodeType
-from dbt.exceptions import (
-    InternalException,
-    InvalidSelectorException,
-    warn_or_error,
-)
-from dbt.contracts.graph.compiled import GraphMemberNode
-from dbt.contracts.graph.manifest import Manifest
-from dbt.contracts.state import PreviousState
+from .selector_spec import IndirectSelection, SelectionCriteria, SelectionSpec
 
 
 def get_package_names(nodes):
     return set([node.split(".")[1] for node in nodes])
-
-
-def alert_non_existence(raw_spec, nodes):
-    if len(nodes) == 0:
-        warn_or_error(f"The selection criterion '{str(raw_spec)}' does not match" f" any nodes")
 
 
 def can_select_indirectly(node):
@@ -35,21 +27,25 @@ def can_select_indirectly(node):
     """
     if node.resource_type == NodeType.Test:
         return True
+    elif node.resource_type == NodeType.Unit:
+        return True
     else:
         return False
 
 
 class NodeSelector(MethodManager):
-    """The node selector is aware of the graph and manifest,"""
+    """The node selector is aware of the graph and manifest"""
 
     def __init__(
         self,
         graph: Graph,
         manifest: Manifest,
         previous_state: Optional[PreviousState] = None,
-    ):
+        include_empty_nodes: bool = False,
+    ) -> None:
         super().__init__(manifest, previous_state)
-        self.full_graph = graph
+        self.full_graph: Graph = graph
+        self.include_empty_nodes: bool = include_empty_nodes
 
         # build a subgraph containing only non-empty, enabled nodes and enabled
         # sources.
@@ -82,7 +78,7 @@ class NodeSelector(MethodManager):
         nodes = self.graph.nodes()
         try:
             collected = self.select_included(nodes, spec)
-        except InvalidSelectorException:
+        except InvalidSelectorError:
             valid_selectors = ", ".join(self.SELECTOR_METHODS)
             fire_event(
                 SelectorReportInvalidSelector(
@@ -91,11 +87,14 @@ class NodeSelector(MethodManager):
             )
             return set(), set()
 
-        neighbors = self.collect_specified_neighbors(spec, collected)
-        direct_nodes, indirect_nodes = self.expand_selection(
-            selected=(collected | neighbors), indirect_selection=spec.indirect_selection
-        )
-        return direct_nodes, indirect_nodes
+        if spec.indirect_selection == IndirectSelection.Empty:
+            return collected, set()
+        else:
+            neighbors = self.collect_specified_neighbors(spec, collected)
+            direct_nodes, indirect_nodes = self.expand_selection(
+                selected=(collected | neighbors), indirect_selection=spec.indirect_selection
+            )
+            return direct_nodes, indirect_nodes
 
     def collect_specified_neighbors(
         self, spec: SelectionCriteria, selected: Set[UniqueId]
@@ -138,10 +137,12 @@ class NodeSelector(MethodManager):
             initial_direct = spec.combined(direct_sets)
             indirect_nodes = spec.combined(indirect_sets)
 
-            direct_nodes = self.incorporate_indirect_nodes(initial_direct, indirect_nodes)
+            direct_nodes = self.incorporate_indirect_nodes(
+                initial_direct, indirect_nodes, spec.indirect_selection
+            )
 
-            if spec.expect_exists:
-                alert_non_existence(spec.raw, direct_nodes)
+            if spec.expect_exists and len(direct_nodes) == 0:
+                warn_or_error(NoNodesForSelectionCriteria(spec_raw=str(spec.raw)))
 
         return direct_nodes, indirect_nodes
 
@@ -163,9 +164,23 @@ class NodeSelector(MethodManager):
         elif unique_id in self.manifest.exposures:
             return True
         elif unique_id in self.manifest.metrics:
+            metric = self.manifest.metrics[unique_id]
+            return metric.config.enabled
+        elif unique_id in self.manifest.semantic_models:
+            semantic_model = self.manifest.semantic_models[unique_id]
+            return semantic_model.config.enabled
+        elif unique_id in self.manifest.unit_tests:
             return True
+        elif unique_id in self.manifest.saved_queries:
+            saved_query = self.manifest.saved_queries[unique_id]
+            return saved_query.config.enabled
+
         node = self.manifest.nodes[unique_id]
-        return not node.empty and node.config.enabled
+
+        if self.include_empty_nodes:
+            return node.config.enabled
+        else:
+            return not node.empty and node.config.enabled
 
     def node_is_match(self, node: GraphMemberNode) -> bool:
         """Determine if a node is a match for the selector. Non-match nodes
@@ -183,8 +198,14 @@ class NodeSelector(MethodManager):
             node = self.manifest.exposures[unique_id]
         elif unique_id in self.manifest.metrics:
             node = self.manifest.metrics[unique_id]
+        elif unique_id in self.manifest.semantic_models:
+            node = self.manifest.semantic_models[unique_id]
+        elif unique_id in self.manifest.unit_tests:
+            node = self.manifest.unit_tests[unique_id]
+        elif unique_id in self.manifest.saved_queries:
+            node = self.manifest.saved_queries[unique_id]
         else:
-            raise InternalException(f"Node {unique_id} not found in the manifest!")
+            raise DbtInternalError(f"Node {unique_id} not found in the manifest!")
         return self.node_is_match(node)
 
     def filter_selection(self, selected: Set[UniqueId]) -> Set[UniqueId]:
@@ -200,7 +221,7 @@ class NodeSelector(MethodManager):
     ) -> Tuple[Set[UniqueId], Set[UniqueId]]:
         # Test selection by default expands to include an implicitly/indirectly selected tests.
         # `dbt test -m model_a` also includes tests that directly depend on `model_a`.
-        # Expansion has two modes, EAGER and CAUTIOUS.
+        # Expansion has four modes, EAGER, CAUTIOUS and BUILDABLE, EMPTY.
         #
         # EAGER mode: If ANY parent is selected, select the test.
         #
@@ -208,29 +229,55 @@ class NodeSelector(MethodManager):
         #  - If ALL parents are selected, select the test.
         #  - If ANY parent is missing, return it separately. We'll keep it around
         #    for later and see if its other parents show up.
+        #
+        # BUILDABLE mode:
+        #  - If ALL parents are selected, or the parents of the test are themselves parents of the selected, select the test.
+        #  - If ANY parent is missing, return it separately. We'll keep it around
+        #    for later and see if its other parents show up.
+        #
+        # EMPTY mode: Only select the given node and ignore attached nodes (i.e. ignore tests attached to a model)
+        #
         # Users can opt out of inclusive EAGER mode by passing --indirect-selection cautious
         # CLI argument or by specifying `indirect_selection: true` in a yaml selector
 
         direct_nodes = set(selected)
         indirect_nodes = set()
+        selected_and_parents = set()
+        if indirect_selection == IndirectSelection.Buildable:
+            selected_and_parents = selected.union(self.graph.select_parents(selected)).union(
+                self.manifest.sources
+            )
 
         for unique_id in self.graph.select_successors(selected):
-            if unique_id in self.manifest.nodes:
-                node = self.manifest.nodes[unique_id]
+            if unique_id in self.manifest.nodes or unique_id in self.manifest.unit_tests:
+                if unique_id in self.manifest.nodes:
+                    node = self.manifest.nodes[unique_id]
+                elif unique_id in self.manifest.unit_tests:
+                    node = self.manifest.unit_tests[unique_id]  # type: ignore
+                # Test nodes that are not selected themselves, but whose parents are selected.
+                # (Does not include unit tests because they can only have one parent.)
                 if can_select_indirectly(node):
                     # should we add it in directly?
                     if indirect_selection == IndirectSelection.Eager or set(
-                        node.depends_on.nodes
+                        node.depends_on_nodes
                     ) <= set(selected):
                         direct_nodes.add(unique_id)
-                    # if not:
+                    elif indirect_selection == IndirectSelection.Buildable and set(
+                        node.depends_on_nodes
+                    ) <= set(selected_and_parents):
+                        direct_nodes.add(unique_id)
+                    elif indirect_selection == IndirectSelection.Empty:
+                        pass
                     else:
                         indirect_nodes.add(unique_id)
 
         return direct_nodes, indirect_nodes
 
     def incorporate_indirect_nodes(
-        self, direct_nodes: Set[UniqueId], indirect_nodes: Set[UniqueId] = set()
+        self,
+        direct_nodes: Set[UniqueId],
+        indirect_nodes: Set[UniqueId] = set(),
+        indirect_selection: IndirectSelection = IndirectSelection.Eager,
     ) -> Set[UniqueId]:
         # Check tests previously selected indirectly to see if ALL their
         # parents are now present.
@@ -241,11 +288,19 @@ class NodeSelector(MethodManager):
 
         selected = set(direct_nodes)
 
-        for unique_id in indirect_nodes:
-            if unique_id in self.manifest.nodes:
-                node = self.manifest.nodes[unique_id]
-                if set(node.depends_on.nodes) <= set(selected):
-                    selected.add(unique_id)
+        if indirect_selection == IndirectSelection.Cautious:
+            for unique_id in indirect_nodes:
+                if unique_id in self.manifest.nodes:
+                    node = self.manifest.nodes[unique_id]
+                    if set(node.depends_on_nodes) <= set(selected):
+                        selected.add(unique_id)
+        elif indirect_selection == IndirectSelection.Buildable:
+            selected_and_parents = selected.union(self.graph.select_parents(selected))
+            for unique_id in indirect_nodes:
+                if unique_id in self.manifest.nodes:
+                    node = self.manifest.nodes[unique_id]
+                    if set(node.depends_on_nodes) <= set(selected_and_parents):
+                        selected.add(unique_id)
 
         return selected
 
@@ -264,14 +319,18 @@ class NodeSelector(MethodManager):
 
         return filtered_nodes
 
-    def get_graph_queue(self, spec: SelectionSpec) -> GraphQueue:
+    def get_graph_queue(self, spec: SelectionSpec, preserve_edges: bool = True) -> GraphQueue:
         """Returns a queue over nodes in the graph that tracks progress of
         dependecies.
         """
+        # Filtering hapens in get_selected
         selected_nodes = self.get_selected(spec)
+        # Save to global variable
+        selected_resources.set_selected_resources(selected_nodes)
+        # Construct a new graph using the selected_nodes
         new_graph = self.full_graph.get_subset_graph(selected_nodes)
         # should we give a way here for consumers to mutate the graph?
-        return GraphQueue(new_graph.graph, self.manifest, selected_nodes)
+        return GraphQueue(new_graph.graph, self.manifest, selected_nodes, preserve_edges)
 
 
 class ResourceTypeSelector(NodeSelector):
@@ -281,11 +340,13 @@ class ResourceTypeSelector(NodeSelector):
         manifest: Manifest,
         previous_state: Optional[PreviousState],
         resource_types: List[NodeType],
-    ):
+        include_empty_nodes: bool = False,
+    ) -> None:
         super().__init__(
             graph=graph,
             manifest=manifest,
             previous_state=previous_state,
+            include_empty_nodes=include_empty_nodes,
         )
         self.resource_types: Set[NodeType] = set(resource_types)
 

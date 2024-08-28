@@ -1,20 +1,24 @@
 import functools
-from typing import Any, Dict, List
-import requests
-from dbt.events.functions import fire_event
-from dbt.events.types import (
-    RegistryProgressMakingGETRequest,
-    RegistryProgressGETResponse,
-    RegistryIndexProgressMakingGETRequest,
-    RegistryIndexProgressGETResponse,
-    RegistryResponseUnexpectedType,
-    RegistryResponseMissingTopKeys,
-    RegistryResponseMissingNestedKeys,
-    RegistryResponseExtraNestedKeys,
-)
-from dbt.utils import memoized, _connection_exception_retry as connection_exception_retry
-from dbt import deprecations
 import os
+from typing import Any, Dict, List
+
+import requests
+
+from dbt import deprecations
+from dbt.events.types import (
+    RegistryIndexProgressGETRequest,
+    RegistryIndexProgressGETResponse,
+    RegistryProgressGETRequest,
+    RegistryProgressGETResponse,
+    RegistryResponseExtraNestedKeys,
+    RegistryResponseMissingNestedKeys,
+    RegistryResponseMissingTopKeys,
+    RegistryResponseUnexpectedType,
+)
+from dbt.utils import memoized
+from dbt_common import semver
+from dbt_common.events.functions import fire_event
+from dbt_common.utils.connection import connection_exception_retry
 
 if os.getenv("DBT_PACKAGE_HUB_URL"):
     DEFAULT_REGISTRY_BASE_URL = os.getenv("DBT_PACKAGE_HUB_URL")
@@ -37,7 +41,7 @@ def _get_with_retries(package_name, registry_base_url=None):
 
 def _get(package_name, registry_base_url=None):
     url = _get_url(package_name, registry_base_url)
-    fire_event(RegistryProgressMakingGETRequest(url=url))
+    fire_event(RegistryProgressGETRequest(url=url))
     # all exceptions from requests get caught in the retry logic so no need to wrap this here
     resp = requests.get(url, timeout=30)
     fire_event(RegistryProgressGETResponse(url=url, resp_code=resp.status_code))
@@ -89,12 +93,20 @@ def _get(package_name, registry_base_url=None):
         fire_event(RegistryResponseExtraNestedKeys(response=response))
         raise requests.exceptions.ContentDecodingError(error_msg, response=resp)
 
+    return response
+
+
+_get_cached = memoized(_get_with_retries)
+
+
+def package(package_name, registry_base_url=None) -> Dict[str, Any]:
+    # returns a dictionary of metadata for all versions of a package
+    response = _get_cached(package_name, registry_base_url)
     # Either redirectnamespace or redirectname in the JSON response indicate a redirect
     # redirectnamespace redirects based on package ownership
     # redirectname redirects based on package name
     # Both can be present at the same time, or neither. Fails gracefully to old name
     if ("redirectnamespace" in response) or ("redirectname" in response):
-
         if ("redirectnamespace" in response) and response["redirectnamespace"] is not None:
             use_namespace = response["redirectnamespace"]
         else:
@@ -107,16 +119,6 @@ def _get(package_name, registry_base_url=None):
 
         new_nwo = use_namespace + "/" + use_name
         deprecations.warn("package-redirect", old_name=package_name, new_name=new_nwo)
-
-    return response
-
-
-_get_cached = memoized(_get_with_retries)
-
-
-def package(package_name, registry_base_url=None) -> Dict[str, Any]:
-    # returns a dictionary of metadata for all versions of a package
-    response = _get_cached(package_name, registry_base_url)
     return response["versions"]
 
 
@@ -126,16 +128,42 @@ def package_version(package_name, version, registry_base_url=None) -> Dict[str, 
     return response[version]
 
 
-def get_available_versions(package_name) -> List["str"]:
+def is_compatible_version(package_spec, dbt_version) -> bool:
+    require_dbt_version = package_spec.get("require_dbt_version")
+    if not require_dbt_version:
+        # if version requirements are missing or empty, assume any version is compatible
+        return True
+    else:
+        # determine whether dbt_version satisfies this package's require-dbt-version config
+        if not isinstance(require_dbt_version, list):
+            require_dbt_version = [require_dbt_version]
+        supported_versions = [
+            semver.VersionSpecifier.from_version_string(v) for v in require_dbt_version
+        ]
+        return semver.versions_compatible(dbt_version, *supported_versions)
+
+
+def get_compatible_versions(package_name, dbt_version, should_version_check) -> List["str"]:
     # returns a list of all available versions of a package
     response = package(package_name)
-    return list(response)
+
+    # if the user doesn't care about installing compatible versions, just return them all
+    if not should_version_check:
+        return list(response)
+
+    # otherwise, only return versions that are compatible with the installed version of dbt-core
+    else:
+        compatible_versions = [
+            pkg_version
+            for pkg_version, info in response.items()
+            if is_compatible_version(info, dbt_version)
+        ]
+        return compatible_versions
 
 
 def _get_index(registry_base_url=None):
-
     url = _get_url("index", registry_base_url)
-    fire_event(RegistryIndexProgressMakingGETRequest(url=url))
+    fire_event(RegistryIndexProgressGETRequest(url=url))
     # all exceptions from requests get caught in the retry logic so no need to wrap this here
     resp = requests.get(url, timeout=30)
     fire_event(RegistryIndexProgressGETResponse(url=url, resp_code=resp.status_code))

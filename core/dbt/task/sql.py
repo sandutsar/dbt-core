@@ -1,42 +1,48 @@
+import traceback
 from abc import abstractmethod
 from datetime import datetime
 from typing import Generic, TypeVar
 
 import dbt.exceptions
+import dbt_common.exceptions.base
+from dbt.contracts.graph.manifest import Manifest
 from dbt.contracts.sql import (
     RemoteCompileResult,
     RemoteCompileResultMixin,
     RemoteRunResult,
     ResultTable,
 )
-from dbt.events.functions import fire_event
-from dbt.events.types import SQlRunnerException
+from dbt.events.types import SQLRunnerException
 from dbt.task.compile import CompileRunner
-
+from dbt_common.events.functions import fire_event
 
 SQLResult = TypeVar("SQLResult", bound=RemoteCompileResultMixin)
 
 
 class GenericSqlRunner(CompileRunner, Generic[SQLResult]):
-    def __init__(self, config, adapter, node, node_index, num_nodes):
+    def __init__(self, config, adapter, node, node_index, num_nodes) -> None:
         CompileRunner.__init__(self, config, adapter, node, node_index, num_nodes)
 
     def handle_exception(self, e, ctx):
-        fire_event(SQlRunnerException(exc=e))
+        fire_event(
+            SQLRunnerException(
+                exc=str(e), exc_info=traceback.format_exc(), node_info=self.node.node_info
+            )
+        )
+        # REVIEW: This code is invalid and will always throw.
         if isinstance(e, dbt.exceptions.Exception):
-            if isinstance(e, dbt.exceptions.RuntimeException):
+            if isinstance(e, dbt_common.exceptions.DbtRuntimeError):
                 e.add_node(ctx.node)
             return e
 
-    def before_execute(self):
+    def before_execute(self) -> None:
         pass
 
-    def after_execute(self, result):
+    def after_execute(self, result) -> None:
         pass
 
-    def compile(self, manifest):
-        compiler = self.adapter.get_compiler()
-        return compiler.compile_node(self.node, manifest, {}, write=False)
+    def compile(self, manifest: Manifest):
+        return self.compiler.compile_node(self.node, manifest, {}, write=False)
 
     @abstractmethod
     def execute(self, compiled_node, manifest) -> SQLResult:
@@ -50,34 +56,34 @@ class GenericSqlRunner(CompileRunner, Generic[SQLResult]):
         raise error
 
     def ephemeral_result(self, node, start_time, timing_info):
-        raise dbt.exceptions.NotImplementedException("cannot execute ephemeral nodes remotely!")
+        raise dbt_common.exceptions.base.NotImplementedError(
+            "cannot execute ephemeral nodes remotely!"
+        )
 
 
 class SqlCompileRunner(GenericSqlRunner[RemoteCompileResult]):
     def execute(self, compiled_node, manifest) -> RemoteCompileResult:
         return RemoteCompileResult(
-            raw_sql=compiled_node.raw_sql,
-            compiled_sql=compiled_node.compiled_sql,
+            raw_code=compiled_node.raw_code,
+            compiled_code=compiled_node.compiled_code,
             node=compiled_node,
             timing=[],  # this will get added later
-            logs=[],
             generated_at=datetime.utcnow(),
         )
 
     def from_run_result(self, result, start_time, timing_info) -> RemoteCompileResult:
         return RemoteCompileResult(
-            raw_sql=result.raw_sql,
-            compiled_sql=result.compiled_sql,
+            raw_code=result.raw_code,
+            compiled_code=result.compiled_code,
             node=result.node,
             timing=timing_info,
-            logs=[],
             generated_at=datetime.utcnow(),
         )
 
 
 class SqlExecuteRunner(GenericSqlRunner[RemoteRunResult]):
     def execute(self, compiled_node, manifest) -> RemoteRunResult:
-        _, execute_result = self.adapter.execute(compiled_node.compiled_sql, fetch=True)
+        _, execute_result = self.adapter.execute(compiled_node.compiled_code, fetch=True)
 
         table = ResultTable(
             column_names=list(execute_result.column_names),
@@ -85,22 +91,20 @@ class SqlExecuteRunner(GenericSqlRunner[RemoteRunResult]):
         )
 
         return RemoteRunResult(
-            raw_sql=compiled_node.raw_sql,
-            compiled_sql=compiled_node.compiled_sql,
+            raw_code=compiled_node.raw_code,
+            compiled_code=compiled_node.compiled_code,
             node=compiled_node,
             table=table,
             timing=[],
-            logs=[],
             generated_at=datetime.utcnow(),
         )
 
     def from_run_result(self, result, start_time, timing_info) -> RemoteRunResult:
         return RemoteRunResult(
-            raw_sql=result.raw_sql,
-            compiled_sql=result.compiled_sql,
+            raw_code=result.raw_code,
+            compiled_code=result.compiled_code,
             node=result.node,
             table=result.table,
             timing=timing_info,
-            logs=[],
             generated_at=datetime.utcnow(),
         )

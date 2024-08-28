@@ -1,23 +1,22 @@
 import os
+
 import pytest
 import yaml
-from dbt.exceptions import ParsingException
 
+from dbt.exceptions import ParsingError
 from dbt.tests.util import (
-    run_dbt,
-    update_config_file,
     check_relations_equal,
     check_table_does_not_exist,
+    run_dbt,
+    update_config_file,
 )
-from tests.functional.sources.common_source_setup import (
-    BaseSourcesTest,
-)
+from tests.functional.sources.common_source_setup import BaseSourcesTest
 from tests.functional.sources.fixtures import (
-    macros__macro_sql,
-    malformed_models__schema_yml,
-    malformed_models__descendant_model_sql,
-    malformed_schema_tests__schema_yml,
-    malformed_schema_tests__model_sql,
+    macros_macro_sql,
+    malformed_models_descendant_model_sql,
+    malformed_models_schema_yml,
+    malformed_schema_tests_model_sql,
+    malformed_schema_tests_schema_yml,
 )
 
 
@@ -33,7 +32,7 @@ class SuccessfulSourcesTest(BaseSourcesTest):
 
     @pytest.fixture(scope="class")
     def macros(self):
-        return {"macro.sql": macros__macro_sql}
+        return {"macro.sql": macros_macro_sql}
 
     def _create_schemas(self, project):
         schema = self.alternative_schema(project.test_schema)
@@ -73,7 +72,7 @@ class TestBasicSource(SuccessfulSourcesTest):
         )
         check_relations_equal(project.adapter, ["expected_multi_source", "multi_source_model"])
         results = self.run_dbt_with_vars(project, ["test"])
-        assert len(results) == 6
+        assert len(results) == 8
 
 
 class TestSourceSelector(SuccessfulSourcesTest):
@@ -96,16 +95,16 @@ class TestSourceSelector(SuccessfulSourcesTest):
         results = self.run_dbt_with_vars(
             project, ["test", "--models", "source:test_source.test_table+"]
         )
-        assert len(results) == 4
+        assert len(results) == 6
 
         results = self.run_dbt_with_vars(
             project, ["test", "--models", "tag:my_test_source_table_tag+"]
         )
-        assert len(results) == 4
+        assert len(results) == 6
 
         results = self.run_dbt_with_vars(project, ["test", "--models", "tag:my_test_source_tag+"])
         # test_table + other_test_table
-        assert len(results) == 6
+        assert len(results) == 8
 
         results = self.run_dbt_with_vars(project, ["test", "--models", "tag:id_column"])
         # all 4 id column tests
@@ -159,12 +158,12 @@ class TestMalformedSources(BaseSourcesTest):
     @pytest.fixture(scope="class")
     def models(self):
         return {
-            "schema.yml": malformed_models__schema_yml,
-            "descendant_model.sql": malformed_models__descendant_model_sql,
+            "schema.yml": malformed_models_schema_yml,
+            "descendant_model.sql": malformed_models_descendant_model_sql,
         }
 
     def test_malformed_schema_will_break_run(self, project):
-        with pytest.raises(ParsingException):
+        with pytest.raises(ParsingError):
             self.run_dbt_with_vars(project, ["seed"])
 
 
@@ -172,8 +171,8 @@ class TestRenderingInSourceTests(BaseSourcesTest):
     @pytest.fixture(scope="class")
     def models(self):
         return {
-            "schema.yml": malformed_schema_tests__schema_yml,
-            "model.sql": malformed_schema_tests__model_sql,
+            "schema.yml": malformed_schema_tests_schema_yml,
+            "model.sql": malformed_schema_tests_model_sql,
         }
 
     def test_render_in_source_tests(self, project):

@@ -1,16 +1,27 @@
+import json
 import os
 import shutil
-import yaml
-import json
-import warnings
-from typing import List
 from contextlib import contextmanager
+from contextvars import ContextVar, copy_context
+from datetime import datetime
+from io import StringIO
+from typing import Any, Dict, List, Optional
 
-from dbt.main import handle_and_check
-from dbt.logger import log_manager
+import yaml
+
+from dbt.adapters.base.relation import BaseRelation
+from dbt.adapters.factory import Adapter
+from dbt.cli.main import dbtRunner
 from dbt.contracts.graph.manifest import Manifest
-from dbt.events.functions import fire_event, capture_stdout_logs, stop_capture_stdout_logs
-from dbt.events.test_types import IntegrationTestDebug
+from dbt_common.context import _INVOCATION_CONTEXT_VAR, InvocationContext
+from dbt_common.events.base_types import EventLevel
+from dbt_common.events.functions import (
+    capture_stdout_logs,
+    fire_event,
+    reset_metadata_vars,
+    stop_capture_stdout_logs,
+)
+from dbt_common.events.types import Note
 
 # =============================================================================
 # Test utilities
@@ -21,8 +32,11 @@ from dbt.events.test_types import IntegrationTestDebug
 #   rm_file
 #   write_file
 #   read_file
+#   mkdir
+#   rm_dir
 #   get_artifact
 #   update_config_file
+#   write_config_file
 #   get_unique_ids_in_results
 #   check_result_nodes_by_name
 #   check_result_nodes_by_unique_id
@@ -32,13 +46,19 @@ from dbt.events.test_types import IntegrationTestDebug
 #   relation_from_name
 #   check_relation_types (table/view)
 #   check_relations_equal
+#   check_relation_has_expected_schema
 #   check_relations_equal_with_relations
 #   check_table_does_exist
 #   check_table_does_not_exist
 #   get_relation_columns
 #   update_rows
 #      generate_update_clause
-
+#
+# Classes for comparing fields in dictionaries
+#   AnyFloat
+#   AnyInteger
+#   AnyString
+#   AnyStringWith
 # =============================================================================
 
 
@@ -49,27 +69,52 @@ from dbt.events.test_types import IntegrationTestDebug
 # The first parameter is a list of dbt command line arguments, such as
 #   run_dbt(["run", "--vars", "seed_name: base"])
 # If the command is expected to fail, pass in "expect_pass=False"):
-#   run_dbt("test"], expect_pass=False)
-def run_dbt(args: List[str] = None, expect_pass=True):
-    # Ignore logbook warnings
-    warnings.filterwarnings("ignore", category=DeprecationWarning, module="logbook")
+#   run_dbt(["test"], expect_pass=False)
+def run_dbt(
+    args: Optional[List[str]] = None,
+    expect_pass: bool = True,
+):
+    # reset global vars
+    reset_metadata_vars()
 
-    # The logger will complain about already being initialized if
-    # we don't do this.
-    log_manager.reset_handlers()
     if args is None:
         args = ["run"]
 
     print("\n\nInvoking dbt with {}".format(args))
-    res, success = handle_and_check(args)
-    assert success == expect_pass, "dbt exit state did not match expected"
-    return res
+    from dbt.flags import get_flags
+
+    flags = get_flags()
+    project_dir = getattr(flags, "PROJECT_DIR", None)
+    profiles_dir = getattr(flags, "PROFILES_DIR", None)
+    if project_dir and "--project-dir" not in args:
+        args.extend(["--project-dir", project_dir])
+    if profiles_dir and "--profiles-dir" not in args:
+        args.extend(["--profiles-dir", profiles_dir])
+    dbt = dbtRunner()
+    res = dbt.invoke(args)
+
+    # the exception is immediately raised to be caught in tests
+    # using a pattern like `with pytest.raises(SomeException):`
+    if res.exception is not None:
+        raise res.exception
+
+    if expect_pass is not None:
+        assert res.success == expect_pass, "dbt exit state did not match expected"
+
+    return res.result
 
 
-# Use this if you need to capture the command logs in a test
-def run_dbt_and_capture(args: List[str] = None, expect_pass=True):
+# Use this if you need to capture the command logs in a test.
+# If you want the logs that are normally written to a file, you must
+# start with the "--debug" flag. The structured schema log CI test
+# will turn the logs into json, so you have to be prepared for that.
+def run_dbt_and_capture(
+    args: Optional[List[str]] = None,
+    expect_pass: bool = True,
+):
     try:
-        stringbuf = capture_stdout_logs()
+        stringbuf = StringIO()
+        capture_stdout_logs(stringbuf)
         res = run_dbt(args, expect_pass=expect_pass)
         stdout = stringbuf.getvalue()
 
@@ -79,16 +124,42 @@ def run_dbt_and_capture(args: List[str] = None, expect_pass=True):
     return res, stdout
 
 
+def get_logging_events(log_output, event_name):
+    logging_events = []
+    for log_line in log_output.split("\n"):
+        # skip empty lines
+        if len(log_line) == 0:
+            continue
+        # The adapter logging also shows up, so skip non-json lines
+        if not log_line.startswith("{"):
+            continue
+        if event_name in log_line:
+            log_dct = json.loads(log_line)
+            if log_dct["info"]["name"] == event_name:
+                logging_events.append(log_dct)
+    return logging_events
+
+
 # Used in test cases to get the manifest from the partial parsing file
 # Note: this uses an internal version of the manifest, and in the future
 # parts of it will not be supported for external use.
-def get_manifest(project_root):
+def get_manifest(project_root) -> Optional[Manifest]:
     path = os.path.join(project_root, "target", "partial_parse.msgpack")
     if os.path.exists(path):
         with open(path, "rb") as fp:
             manifest_mp = fp.read()
         manifest: Manifest = Manifest.from_msgpack(manifest_mp)
         return manifest
+    else:
+        return None
+
+
+# Used in test cases to get the run_results.json file.
+def get_run_results(project_root) -> Any:
+    path = os.path.join(project_root, "target", "run_results.json")
+    if os.path.exists(path):
+        with open(path) as run_result_text:
+            return json.load(run_result_text)
     else:
         return None
 
@@ -104,9 +175,9 @@ def copy_file(src_path, src, dest_path, dest) -> None:
 
 
 # Used in tests when you want to remove a file from the project directory
-def rm_file(src_path, src) -> None:
+def rm_file(*paths) -> None:
     # remove files from proj_path
-    os.remove(os.path.join(src_path, src))
+    os.remove(os.path.join(*paths))
 
 
 # Used in tests to write out the string contents of a file to a
@@ -118,12 +189,37 @@ def write_file(contents, *paths):
         fp.write(contents)
 
 
+def file_exists(*paths):
+    """Check if file exists at path"""
+    return os.path.exists(os.path.join(*paths))
+
+
 # Used in test utilities
 def read_file(*paths):
     contents = ""
     with open(os.path.join(*paths), "r") as fp:
         contents = fp.read()
     return contents
+
+
+# To create a directory
+def mkdir(directory_path):
+    try:
+        os.makedirs(directory_path)
+    except FileExistsError:
+        raise FileExistsError(f"{directory_path} already exists.")
+
+
+# To remove a directory
+def rm_dir(directory_path):
+    try:
+        shutil.rmtree(directory_path)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"{directory_path} does not exist.")
+
+
+def rename_dir(src_directory_path, dest_directory_path):
+    os.rename(src_directory_path, dest_directory_path)
 
 
 # Get an artifact (usually from the target directory) such as
@@ -134,6 +230,11 @@ def get_artifact(*paths):
     return dct
 
 
+def write_artifact(dct, *paths):
+    json_output = json.dumps(dct)
+    write_file(json_output, *paths)
+
+
 # For updating yaml config files
 def update_config_file(updates, *paths):
     current_yaml = read_file(*paths)
@@ -141,6 +242,13 @@ def update_config_file(updates, *paths):
     config.update(updates)
     new_yaml = yaml.safe_dump(config)
     write_file(new_yaml, *paths)
+
+
+# Write new config file
+def write_config_file(data, *paths):
+    if type(data) is dict:
+        data = yaml.safe_dump(data)
+    write_file(data, *paths)
 
 
 # Get the unique_ids in dbt command results
@@ -167,11 +275,22 @@ def check_result_nodes_by_unique_id(results, unique_ids):
     assert set(unique_ids) == set(result_unique_ids)
 
 
+# Check datetime is between start and end/now
+def check_datetime_between(timestr, start, end=None):
+    datefmt = "%Y-%m-%dT%H:%M:%S.%fZ"
+    if end is None:
+        end = datetime.utcnow()
+    parsed = datetime.strptime(timestr, datefmt)
+    assert start <= parsed
+    assert end >= parsed
+
+
 class TestProcessingException(Exception):
     pass
 
 
 # Testing utilities that use adapter code
+
 
 # Uses:
 #    adapter.config.credentials
@@ -180,6 +299,7 @@ class TestProcessingException(Exception):
 def run_sql_with_adapter(adapter, sql, fetch=None):
     if sql.strip() == "":
         return
+
     # substitute schema and database in sql
     kwargs = {
         "schema": adapter.config.credentials.schema,
@@ -188,12 +308,12 @@ def run_sql_with_adapter(adapter, sql, fetch=None):
     sql = sql.format(**kwargs)
 
     msg = f'test connection "__test" executing: {sql}'
-    fire_event(IntegrationTestDebug(msg=msg))
+    fire_event(Note(msg=msg), level=EventLevel.DEBUG)
     with get_connection(adapter) as conn:
         return adapter.run_sql_for_tests(sql, fetch, conn)
 
 
-# Get a Relation object from the identifer (name of table/view).
+# Get a Relation object from the identifier (name of table/view).
 # Uses the default database and schema. If you need a relation
 # with a different schema, it should be constructed in the test.
 # Uses:
@@ -234,7 +354,7 @@ def relation_from_name(adapter, name: str):
 
 
 # Ensure that models with different materialiations have the
-# corrent table/view.
+# current table/view.
 # Uses:
 #   adapter.list_relations_without_caching
 def check_relation_types(adapter, relation_to_type):
@@ -273,13 +393,26 @@ def check_relation_types(adapter, relation_to_type):
 # by doing a separate call for each set of tables/relations.
 # Wraps check_relations_equal_with_relations by creating relations
 # from the list of names passed in.
-def check_relations_equal(adapter, relation_names):
+def check_relations_equal(adapter, relation_names: List, compare_snapshot_cols=False):
     if len(relation_names) < 2:
         raise TestProcessingException(
             "Not enough relations to compare",
         )
     relations = [relation_from_name(adapter, name) for name in relation_names]
-    return check_relations_equal_with_relations(adapter, relations)
+    return check_relations_equal_with_relations(
+        adapter, relations, compare_snapshot_cols=compare_snapshot_cols
+    )
+
+
+# Used to check that a particular relation has an expected schema
+# expected_schema should look like {"column_name": "expected datatype"}
+def check_relation_has_expected_schema(adapter, relation_name, expected_schema: Dict):
+    relation = relation_from_name(adapter, relation_name)
+    with get_connection(adapter):
+        actual_columns = {c.name: c.data_type for c in adapter.get_columns_in_relation(relation)}
+    assert (
+        actual_columns == expected_schema
+    ), f"Actual schema did not match expected, actual: {json.dumps(actual_columns)}"
 
 
 # This can be used when checking relations in different schemas, by supplying
@@ -288,20 +421,22 @@ def check_relations_equal(adapter, relation_names):
 #    adapter.get_columns_in_relation
 #    adapter.get_rows_different_sql
 #    adapter.execute
-def check_relations_equal_with_relations(adapter, relations):
-
+def check_relations_equal_with_relations(
+    adapter: Adapter, relations: List, compare_snapshot_cols=False
+):
     with get_connection(adapter):
         basis, compares = relations[0], relations[1:]
         # Skip columns starting with "dbt_" because we don't want to
         # compare those, since they are time sensitive
+        # (unless comparing "dbt_" snapshot columns is explicitly enabled)
         column_names = [
             c.name
-            for c in adapter.get_columns_in_relation(basis)
-            if not c.name.lower().startswith("dbt_")
+            for c in adapter.get_columns_in_relation(basis)  # type: ignore
+            if not c.name.lower().startswith("dbt_") or compare_snapshot_cols
         ]
 
         for relation in compares:
-            sql = adapter.get_rows_different_sql(basis, relation, column_names=column_names)
+            sql = adapter.get_rows_different_sql(basis, relation, column_names=column_names)  # type: ignore
             _, tbl = adapter.execute(sql, fetch=True)
             num_rows = len(tbl)
             assert (
@@ -419,3 +554,88 @@ def check_table_does_not_exist(adapter, name):
 def check_table_does_exist(adapter, name):
     columns = get_relation_columns(adapter, name)
     assert len(columns) > 0
+
+
+# Utility classes for enabling comparison of dictionaries
+
+
+class AnyFloat:
+    """Any float. Use this in assert calls"""
+
+    def __eq__(self, other):
+        return isinstance(other, float)
+
+
+class AnyInteger:
+    """Any Integer. Use this in assert calls"""
+
+    def __eq__(self, other):
+        return isinstance(other, int)
+
+
+class AnyString:
+    """Any string. Use this in assert calls"""
+
+    def __eq__(self, other):
+        return isinstance(other, str)
+
+
+class AnyStringWith:
+    """AnyStringWith("AUTO")"""
+
+    def __init__(self, contains=None):
+        self.contains = contains
+
+    def __eq__(self, other):
+        if not isinstance(other, str):
+            return False
+
+        if self.contains is None:
+            return True
+
+        return self.contains in other
+
+    def __repr__(self):
+        return "AnyStringWith<{!r}>".format(self.contains)
+
+
+def assert_message_in_logs(message: str, logs: str, expected_pass: bool = True):
+    # if the logs are json strings, then 'jsonify' the message because of things like escape quotes
+    if os.environ.get("DBT_LOG_FORMAT", "") == "json":
+        message = message.replace(r'"', r"\"")
+
+    if expected_pass:
+        assert message in logs
+    else:
+        assert message not in logs
+
+
+def get_project_config(project):
+    file_yaml = read_file(project.project_root, "dbt_project.yml")
+    return yaml.safe_load(file_yaml)
+
+
+def set_project_config(project, config):
+    config_yaml = yaml.safe_dump(config)
+    write_file(config_yaml, project.project_root, "dbt_project.yml")
+
+
+def get_model_file(project, relation: BaseRelation) -> str:
+    return read_file(project.project_root, "models", f"{relation.name}.sql")
+
+
+def set_model_file(project, relation: BaseRelation, model_sql: str):
+    write_file(model_sql, project.project_root, "models", f"{relation.name}.sql")
+
+
+def safe_set_invocation_context():
+    """In order to deal with a problem with the way the pytest runner interacts
+    with ContextVars, this function provides a mechanism for setting the
+    invocation context reliably, using its name rather than the reference
+    variable, which may have been loaded in a separate context."""
+    invocation_var: Optional[ContextVar] = next(
+        iter([cv for cv in copy_context() if cv.name == _INVOCATION_CONTEXT_VAR.name]), None
+    )
+    if invocation_var is None:
+        invocation_var = _INVOCATION_CONTEXT_VAR
+    invocation_var.set(InvocationContext(os.environ))

@@ -1,28 +1,26 @@
-import hashlib
 import re
 from copy import deepcopy
-from dataclasses import dataclass
-from typing import (
-    Generic,
-    TypeVar,
-    Dict,
-    Any,
-    Tuple,
-    Optional,
-    List,
-)
+from typing import Any, Dict, Generic, List, Optional, Tuple
 
-from dbt.clients.jinja import get_rendered, GENERIC_TEST_KWARGS_NAME
-from dbt.contracts.graph.parsed import UnpatchedSourceDefinition
-from dbt.contracts.graph.unparsed import (
-    TestDef,
-    UnparsedAnalysisUpdate,
-    UnparsedMacroUpdate,
-    UnparsedNodeUpdate,
-    UnparsedExposure,
+from dbt.artifacts.resources import NodeVersion
+from dbt.clients.jinja import GENERIC_TEST_KWARGS_NAME, get_rendered
+from dbt.contracts.graph.nodes import UnpatchedSourceDefinition
+from dbt.contracts.graph.unparsed import UnparsedModelUpdate, UnparsedNodeUpdate
+from dbt.exceptions import (
+    CustomMacroPopulatingConfigValueError,
+    SameKeyNestedError,
+    TagNotStringError,
+    TagsNotListOfStringsError,
+    TestArgIncludesModelError,
+    TestArgsNotDictError,
+    TestDefinitionDictLengthError,
+    TestNameNotStringError,
+    TestTypeError,
+    UnexpectedTestNamePatternError,
 )
-from dbt.exceptions import raise_compiler_error, raise_parsing_error
-from dbt.parser.search import FileBlock
+from dbt.parser.common import Testable
+from dbt.utils import md5
+from dbt_common.exceptions.macros import UndefinedMacroError
 
 
 def synthesize_generic_test_names(
@@ -60,124 +58,12 @@ def synthesize_generic_test_names(
 
     if len(full_name) >= 64:
         test_trunc_identifier = test_identifier[:30]
-        label = hashlib.md5(full_name.encode("utf-8")).hexdigest()
+        label = md5(full_name)
         short_name = "{}_{}".format(test_trunc_identifier, label)
     else:
         short_name = full_name
 
     return short_name, full_name
-
-
-@dataclass
-class YamlBlock(FileBlock):
-    data: Dict[str, Any]
-
-    @classmethod
-    def from_file_block(cls, src: FileBlock, data: Dict[str, Any]):
-        return cls(
-            file=src.file,
-            data=data,
-        )
-
-
-Testable = TypeVar("Testable", UnparsedNodeUpdate, UnpatchedSourceDefinition)
-
-ColumnTarget = TypeVar(
-    "ColumnTarget",
-    UnparsedNodeUpdate,
-    UnparsedAnalysisUpdate,
-    UnpatchedSourceDefinition,
-)
-
-Target = TypeVar(
-    "Target",
-    UnparsedNodeUpdate,
-    UnparsedMacroUpdate,
-    UnparsedAnalysisUpdate,
-    UnpatchedSourceDefinition,
-    UnparsedExposure,
-)
-
-
-@dataclass
-class TargetBlock(YamlBlock, Generic[Target]):
-    target: Target
-
-    @property
-    def name(self):
-        return self.target.name
-
-    @property
-    def columns(self):
-        return []
-
-    @property
-    def tests(self) -> List[TestDef]:
-        return []
-
-    @classmethod
-    def from_yaml_block(cls, src: YamlBlock, target: Target) -> "TargetBlock[Target]":
-        return cls(
-            file=src.file,
-            data=src.data,
-            target=target,
-        )
-
-
-@dataclass
-class TargetColumnsBlock(TargetBlock[ColumnTarget], Generic[ColumnTarget]):
-    @property
-    def columns(self):
-        if self.target.columns is None:
-            return []
-        else:
-            return self.target.columns
-
-
-@dataclass
-class TestBlock(TargetColumnsBlock[Testable], Generic[Testable]):
-    @property
-    def tests(self) -> List[TestDef]:
-        if self.target.tests is None:
-            return []
-        else:
-            return self.target.tests
-
-    @property
-    def quote_columns(self) -> Optional[bool]:
-        return self.target.quote_columns
-
-    @classmethod
-    def from_yaml_block(cls, src: YamlBlock, target: Testable) -> "TestBlock[Testable]":
-        return cls(
-            file=src.file,
-            data=src.data,
-            target=target,
-        )
-
-
-@dataclass
-class GenericTestBlock(TestBlock[Testable], Generic[Testable]):
-    test: Dict[str, Any]
-    column_name: Optional[str]
-    tags: List[str]
-
-    @classmethod
-    def from_test_block(
-        cls,
-        src: TestBlock,
-        test: Dict[str, Any],
-        column_name: Optional[str],
-        tags: List[str],
-    ) -> "GenericTestBlock":
-        return cls(
-            file=src.file,
-            data=src.data,
-            target=src.target,
-            test=test,
-            column_name=column_name,
-            tags=tags,
-        )
 
 
 class TestBuilder(Generic[Testable]):
@@ -205,6 +91,7 @@ class TestBuilder(Generic[Testable]):
         "error_if",
         "fail_calc",
         "store_failures",
+        "store_failures_as",
         "meta",
         "database",
         "schema",
@@ -213,56 +100,38 @@ class TestBuilder(Generic[Testable]):
 
     def __init__(
         self,
-        test: Dict[str, Any],
+        data_test: Dict[str, Any],
         target: Testable,
         package_name: str,
         render_ctx: Dict[str, Any],
-        column_name: str = None,
+        column_name: Optional[str] = None,
+        version: Optional[NodeVersion] = None,
     ) -> None:
-        test_name, test_args = self.extract_test_args(test, column_name)
+        test_name, test_args = self.extract_test_args(data_test, column_name)
         self.args: Dict[str, Any] = test_args
         if "model" in self.args:
-            raise_compiler_error(
-                'Test arguments include "model", which is a reserved argument',
-            )
+            raise TestArgIncludesModelError()
         self.package_name: str = package_name
         self.target: Testable = target
-
+        self.version: Optional[NodeVersion] = version
+        self.render_ctx: Dict[str, Any] = render_ctx
+        self.column_name: Optional[str] = column_name
         self.args["model"] = self.build_model_str()
 
         match = self.TEST_NAME_PATTERN.match(test_name)
         if match is None:
-            raise_compiler_error(
-                "Test name string did not match expected pattern: {}".format(test_name)
-            )
+            raise UnexpectedTestNamePatternError(test_name)
 
         groups = match.groupdict()
         self.name: str = groups["test_name"]
         self.namespace: str = groups["test_namespace"]
         self.config: Dict[str, Any] = {}
+        # Process legacy args
+        self.config.update(self._process_legacy_args())
 
-        # This code removes keys identified as config args from the test entry
-        # dictionary. The keys remaining in the 'args' dictionary will be
-        # "kwargs", or keyword args that are passed to the test macro.
-        # The "kwargs" are not rendered into strings until compilation time.
-        # The "configs" are rendered here (since they were not rendered back
-        # in the 'get_key_dicts' methods in the schema parsers).
-        for key in self.CONFIG_ARGS:
-            value = self.args.pop(key, None)
-            # 'modifier' config could be either top level arg or in config
-            if value and "config" in self.args and key in self.args["config"]:
-                raise_compiler_error(
-                    "Test cannot have the same key at the top-level and in config"
-                )
-            if not value and "config" in self.args:
-                value = self.args["config"].pop(key, None)
-            if isinstance(value, str):
-                value = get_rendered(value, render_ctx, native=True)
-            if value is not None:
-                self.config[key] = value
-
+        # Process config args if present
         if "config" in self.args:
-            del self.args["config"]
+            self.config.update(self._render_values(self.args.pop("config", {})))
 
         if self.namespace is not None:
             self.package_name = self.namespace
@@ -287,42 +156,63 @@ class TestBuilder(Generic[Testable]):
             if short_name != full_name and "alias" not in self.config:
                 self.config["alias"] = short_name
 
+    def _process_legacy_args(self):
+        config = {}
+        for key in self.CONFIG_ARGS:
+            value = self.args.pop(key, None)
+            if value and "config" in self.args and key in self.args["config"]:
+                raise SameKeyNestedError()
+            if not value and "config" in self.args:
+                value = self.args["config"].pop(key, None)
+            config[key] = value
+
+        return self._render_values(config)
+
+    def _render_values(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        rendered_config = {}
+        for key, value in config.items():
+            if isinstance(value, str):
+                try:
+                    value = get_rendered(value, self.render_ctx, native=True)
+                except UndefinedMacroError as e:
+                    raise CustomMacroPopulatingConfigValueError(
+                        target_name=self.target.name,
+                        column_name=self.column_name,
+                        name=self.name,
+                        key=key,
+                        err_msg=e.msg,
+                    )
+            if value is not None:
+                rendered_config[key] = value
+        return rendered_config
+
     def _bad_type(self) -> TypeError:
         return TypeError('invalid target type "{}"'.format(type(self.target)))
 
     @staticmethod
-    def extract_test_args(test, name=None) -> Tuple[str, Dict[str, Any]]:
-        if not isinstance(test, dict):
-            raise_parsing_error(
-                "test must be dict or str, got {} (value {})".format(type(test), test)
-            )
+    def extract_test_args(data_test, name=None) -> Tuple[str, Dict[str, Any]]:
+        if not isinstance(data_test, dict):
+            raise TestTypeError(data_test)
 
         # If the test is a dictionary with top-level keys, the test name is "test_name"
         # and the rest are arguments
         # {'name': 'my_favorite_test', 'test_name': 'unique', 'config': {'where': '1=1'}}
-        if "test_name" in test.keys():
-            test_name = test.pop("test_name")
-            test_args = test
+        if "test_name" in data_test.keys():
+            test_name = data_test.pop("test_name")
+            test_args = data_test
         # If the test is a nested dictionary with one top-level key, the test name
         # is the dict name, and nested keys are arguments
         # {'unique': {'name': 'my_favorite_test', 'config': {'where': '1=1'}}}
         else:
-            test = list(test.items())
-            if len(test) != 1:
-                raise_parsing_error(
-                    "test definition dictionary must have exactly one key, got"
-                    " {} instead ({} keys)".format(test, len(test))
-                )
-            test_name, test_args = test[0]
+            data_test = list(data_test.items())
+            if len(data_test) != 1:
+                raise TestDefinitionDictLengthError(data_test)
+            test_name, test_args = data_test[0]
 
         if not isinstance(test_args, dict):
-            raise_parsing_error(
-                "test arguments must be dict, got {} (value {})".format(type(test_args), test_args)
-            )
+            raise TestArgsNotDictError(test_args)
         if not isinstance(test_name, str):
-            raise_parsing_error(
-                "test name must be a str, got {} (value {})".format(type(test_name), test_name)
-            )
+            raise TestNameNotStringError(test_name)
         test_args = deepcopy(test_args)
         if name is not None:
             test_args["column_name"] = name
@@ -347,6 +237,10 @@ class TestBuilder(Generic[Testable]):
     @property
     def store_failures(self) -> Optional[bool]:
         return self.config.get("store_failures")
+
+    @property
+    def store_failures_as(self) -> Optional[bool]:
+        return self.config.get("store_failures_as")
 
     @property
     def where(self) -> Optional[str]:
@@ -400,6 +294,8 @@ class TestBuilder(Generic[Testable]):
             config["fail_calc"] = self.fail_calc
         if self.store_failures is not None:
             config["store_failures"] = self.store_failures
+        if self.store_failures_as is not None:
+            config["store_failures_as"] = self.store_failures_as
         if self.meta is not None:
             config["meta"] = self.meta
         if self.database is not None:
@@ -413,12 +309,10 @@ class TestBuilder(Generic[Testable]):
         if isinstance(tags, str):
             tags = [tags]
         if not isinstance(tags, list):
-            raise_compiler_error(
-                f"got {tags} ({type(tags)}) for tags, expected a list of " f"strings"
-            )
+            raise TagsNotListOfStringsError(tags)
         for tag in tags:
             if not isinstance(tag, str):
-                raise_compiler_error(f"got {tag} ({type(tag)}) for tag, expected a str")
+                raise TagNotStringError(tag)
         return tags[:]
 
     def macro_name(self) -> str:
@@ -429,7 +323,12 @@ class TestBuilder(Generic[Testable]):
 
     def get_synthetic_test_names(self) -> Tuple[str, str]:
         # Returns two names: shorter (for the compiled file), full (for the unique_id + FQN)
-        if isinstance(self.target, UnparsedNodeUpdate):
+        target_name = self.target.name
+        if isinstance(self.target, UnparsedModelUpdate):
+            name = self.name
+            if self.version:
+                target_name = f"{self.target.name}_v{self.version}"
+        elif isinstance(self.target, UnparsedNodeUpdate):
             name = self.name
         elif isinstance(self.target, UnpatchedSourceDefinition):
             name = "source_" + self.name
@@ -437,7 +336,7 @@ class TestBuilder(Generic[Testable]):
             raise self._bad_type()
         if self.namespace is not None:
             name = "{}_{}".format(self.namespace, name)
-        return synthesize_generic_test_names(name, self.target.name, self.args)
+        return synthesize_generic_test_names(name, target_name, self.args)
 
     def construct_config(self) -> str:
         configs = ",".join(
@@ -456,9 +355,9 @@ class TestBuilder(Generic[Testable]):
         else:
             return ""
 
-    # this is the 'raw_sql' that's used in 'render_update' and execution
+    # this is the 'raw_code' that's used in 'render_update' and execution
     # of the test macro
-    def build_raw_sql(self) -> str:
+    def build_raw_code(self) -> str:
         return ("{{{{ {macro}(**{kwargs_name}) }}}}{config}").format(
             macro=self.macro_name(),
             config=self.construct_config(),
@@ -467,7 +366,12 @@ class TestBuilder(Generic[Testable]):
 
     def build_model_str(self):
         targ = self.target
-        if isinstance(self.target, UnparsedNodeUpdate):
+        if isinstance(self.target, UnparsedModelUpdate):
+            if self.version:
+                target_str = f"ref('{targ.name}', version='{self.version}')"
+            else:
+                target_str = f"ref('{targ.name}')"
+        elif isinstance(self.target, UnparsedNodeUpdate):
             target_str = f"ref('{targ.name}')"
         elif isinstance(self.target, UnpatchedSourceDefinition):
             target_str = f"source('{targ.source.name}', '{targ.table.name}')"

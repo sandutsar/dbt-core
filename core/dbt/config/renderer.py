@@ -1,13 +1,19 @@
-from typing import Dict, Any, Tuple, Optional, Union, Callable
+import re
+from datetime import date
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
-from dbt.clients.jinja import get_rendered, catch_jinja
-from dbt.context.target import TargetContext
-from dbt.context.secret import SecretContext
+from dbt.adapters.contracts.connection import HasCredentials
+from dbt.clients.jinja import get_rendered
+from dbt.constants import DEPENDENCIES_FILE_NAME, SECRET_PLACEHOLDER
 from dbt.context.base import BaseContext
-from dbt.contracts.connection import HasCredentials
-from dbt.exceptions import DbtProjectError, CompilationException, RecursionException
-from dbt.utils import deep_map_render
-
+from dbt.context.secret import SecretContext
+from dbt.context.target import TargetContext
+from dbt.exceptions import DbtProjectError
+from dbt_common.clients.jinja import catch_jinja
+from dbt_common.constants import SECRET_ENV_PREFIX
+from dbt_common.context import get_invocation_context
+from dbt_common.exceptions import CompilationError, RecursionError
+from dbt_common.utils import deep_map_render
 
 Keypath = Tuple[Union[str, int], ...]
 
@@ -30,21 +36,21 @@ class BaseRenderer:
         return self.render_value(value, keypath)
 
     def render_value(self, value: Any, keypath: Optional[Keypath] = None) -> Any:
-        # keypath is ignored.
-        # if it wasn't read as a string, ignore it
+        # keypath is ignored (and someone who knows should explain why here)
         if not isinstance(value, str):
-            return value
+            return value if not isinstance(value, date) else value.isoformat()
+
         try:
             with catch_jinja():
                 return get_rendered(value, self.context, native=True)
-        except CompilationException as exc:
+        except CompilationError as exc:
             msg = f"Could not render {value}: {exc.msg}"
-            raise CompilationException(msg) from exc
+            raise CompilationError(msg) from exc
 
     def render_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         try:
             return deep_map_render(self.render_entry, data)
-        except RecursionException:
+        except RecursionError:
             raise DbtProjectError(
                 f"Cycle detected: {self.name} input has a reference to itself", project=data
             )
@@ -70,7 +76,7 @@ def _list_if_none_or_string(value):
 
 
 class ProjectPostprocessor(Dict[Keypath, Callable[[Any], Any]]):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
         self[("on-run-start",)] = _list_if_none_or_string
@@ -104,7 +110,7 @@ class DbtProjectYamlRenderer(BaseRenderer):
         if cli_vars is None:
             cli_vars = {}
         if profile:
-            self.ctx_obj = TargetContext(profile, cli_vars)
+            self.ctx_obj = TargetContext(profile.to_target_dict(), cli_vars)
         else:
             self.ctx_obj = BaseContext(cli_vars)  # type:ignore
         context = self.ctx_obj.to_dict()
@@ -114,11 +120,9 @@ class DbtProjectYamlRenderer(BaseRenderer):
     def name(self):
         "Project config"
 
+    # Uses SecretRenderer
     def get_package_renderer(self) -> BaseRenderer:
         return PackageRenderer(self.ctx_obj.cli_vars)
-
-    def get_selector_renderer(self) -> BaseRenderer:
-        return SelectorRenderer(self.ctx_obj.cli_vars)
 
     def render_project(
         self,
@@ -130,14 +134,18 @@ class DbtProjectYamlRenderer(BaseRenderer):
         rendered_project["project-root"] = project_root
         return rendered_project
 
-    def render_packages(self, packages: Dict[str, Any]):
+    def render_packages(self, packages: Dict[str, Any], packages_specified_path: str):
         """Render the given packages dict"""
+        packages = packages or {}  # Sometimes this is none in tests
         package_renderer = self.get_package_renderer()
-        return package_renderer.render_data(packages)
+        if packages_specified_path == DEPENDENCIES_FILE_NAME:
+            # We don't want to render the "packages" dictionary that came from dependencies.yml
+            return packages
+        else:
+            return package_renderer.render_data(packages)
 
     def render_selectors(self, selectors: Dict[str, Any]):
-        selector_renderer = self.get_selector_renderer()
-        return selector_renderer.render_data(selectors)
+        return self.render_data(selectors)
 
     def render_entry(self, value: Any, keypath: Keypath) -> Any:
         result = super().render_entry(value, keypath)
@@ -156,27 +164,20 @@ class DbtProjectYamlRenderer(BaseRenderer):
         if first == "vars":
             return False
 
-        if first in {"seeds", "models", "snapshots", "tests"}:
+        if first in {"seeds", "models", "snapshots", "tests", "data_tests"}:
             keypath_parts = {(k.lstrip("+ ") if isinstance(k, str) else k) for k in keypath}
             # model-level hooks
-            if "pre-hook" in keypath_parts or "post-hook" in keypath_parts:
+            late_rendered_hooks = {"pre-hook", "post-hook", "pre_hook", "post_hook"}
+            if keypath_parts.intersection(late_rendered_hooks):
                 return False
 
         return True
 
 
-class SelectorRenderer(BaseRenderer):
-    @property
-    def name(self):
-        return "Selector config"
-
-
 class SecretRenderer(BaseRenderer):
-    def __init__(self, cli_vars: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, cli_vars: Dict[str, Any] = {}) -> None:
         # Generate contexts here because we want to save the context
         # object in order to retrieve the env_vars.
-        if cli_vars is None:
-            cli_vars = {}
         self.ctx_obj = SecretContext(cli_vars)
         context = self.ctx_obj.to_dict()
         super().__init__(context)
@@ -184,6 +185,38 @@ class SecretRenderer(BaseRenderer):
     @property
     def name(self):
         return "Secret"
+
+    def render_value(self, value: Any, keypath: Optional[Keypath] = None) -> Any:
+        # First, standard Jinja rendering, with special handling for 'secret' environment variables
+        # "{{ env_var('DBT_SECRET_ENV_VAR') }}" -> "$$$DBT_SECRET_START$$$DBT_SECRET_ENV_{VARIABLE_NAME}$$$DBT_SECRET_END$$$"
+        # This prevents Jinja manipulation of secrets via macros/filters that might leak partial/modified values in logs
+
+        try:
+            rendered = super().render_value(value, keypath)
+        except Exception as ex:
+            if keypath and "password" in keypath:
+                # Passwords sometimes contain jinja-esque characters, but we
+                # don't want to render them if they aren't valid jinja.
+                rendered = value
+            else:
+                raise ex
+
+        # Now, detect instances of the placeholder value ($$$DBT_SECRET_START...DBT_SECRET_END$$$)
+        # and replace them with the actual secret value
+        if SECRET_ENV_PREFIX in str(rendered):
+            search_group = f"({SECRET_ENV_PREFIX}(.*))"
+            pattern = SECRET_PLACEHOLDER.format(search_group).replace("$", r"\$")
+            m = re.search(
+                pattern,
+                rendered,
+            )
+            if m:
+                found = m.group(1)
+                value = get_invocation_context().env[found]
+                replace_this = SECRET_PLACEHOLDER.format(found)
+                return rendered.replace(replace_this, value)
+        else:
+            return rendered
 
 
 class ProfileRenderer(SecretRenderer):

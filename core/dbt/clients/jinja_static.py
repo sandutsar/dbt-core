@@ -1,35 +1,40 @@
+from typing import Any, Dict, List, Optional, Union
+
 import jinja2
-from dbt.clients.jinja import get_environment
-from dbt.exceptions import raise_compiler_error
+
+from dbt.artifacts.resources import RefArgs
+from dbt.exceptions import MacroNamespaceNotStringError, ParsingError
+from dbt_common.clients.jinja import get_environment
+from dbt_common.exceptions.macros import MacroNameNotStringError
+from dbt_common.tests import test_caching_enabled
+from dbt_extractor import ExtractionError, py_extract_from_source  # type: ignore
+
+_TESTING_MACRO_CACHE: Optional[Dict[str, Any]] = {}
 
 
 def statically_extract_macro_calls(string, ctx, db_wrapper=None):
     # set 'capture_macros' to capture undefined
     env = get_environment(None, capture_macros=True)
-    parsed = env.parse(string)
+
+    global _TESTING_MACRO_CACHE
+    if test_caching_enabled() and string in _TESTING_MACRO_CACHE:
+        parsed = _TESTING_MACRO_CACHE.get(string, None)
+        func_calls = getattr(parsed, "_dbt_cached_calls")
+    else:
+        parsed = env.parse(string)
+        func_calls = tuple(parsed.find_all(jinja2.nodes.Call))
+
+        if test_caching_enabled():
+            _TESTING_MACRO_CACHE[string] = parsed
+            setattr(parsed, "_dbt_cached_calls", func_calls)
 
     standard_calls = ["source", "ref", "config"]
     possible_macro_calls = []
-    for func_call in parsed.find_all(jinja2.nodes.Call):
+    for func_call in func_calls:
         func_name = None
         if hasattr(func_call, "node") and hasattr(func_call.node, "name"):
             func_name = func_call.node.name
         else:
-            # func_call for dbt_utils.current_timestamp macro
-            # Call(
-            #   node=Getattr(
-            #     node=Name(
-            #       name='dbt_utils',
-            #       ctx='load'
-            #     ),
-            #     attr='current_timestamp',
-            #     ctx='load
-            #   ),
-            #   args=[],
-            #   kwargs=[],
-            #   dyn_args=None,
-            #   dyn_kwargs=None
-            # )
             if (
                 hasattr(func_call, "node")
                 and hasattr(func_call.node, "node")
@@ -117,20 +122,14 @@ def statically_parse_adapter_dispatch(func_call, ctx, db_wrapper):
                     func_name = kwarg.value.value
                     possible_macro_calls.append(func_name)
                 else:
-                    raise_compiler_error(
-                        f"The macro_name parameter ({kwarg.value.value}) "
-                        "to adapter.dispatch was not a string"
-                    )
+                    raise MacroNameNotStringError(kwarg_value=kwarg.value.value)
             elif kwarg.key == "macro_namespace":
                 # This will remain to enable static resolution
                 kwarg_type = type(kwarg.value).__name__
                 if kwarg_type == "Const":
                     macro_namespace = kwarg.value.value
                 else:
-                    raise_compiler_error(
-                        "The macro_namespace parameter to adapter.dispatch "
-                        f"is a {kwarg_type}, not a string"
-                    )
+                    raise MacroNamespaceNotStringError(kwarg_type)
 
     # positional arguments
     if packages_arg:
@@ -147,7 +146,7 @@ def statically_parse_adapter_dispatch(func_call, ctx, db_wrapper):
         macro = db_wrapper.dispatch(func_name, macro_namespace=macro_namespace).macro
         func_name = f"{macro.package_name}.{macro.name}"
         possible_macro_calls.append(func_name)
-    else:  # this is only for test/unit/test_macro_calls.py
+    else:  # this is only for tests/unit/test_macro_calls.py
         if macro_namespace:
             packages = [macro_namespace]
         else:
@@ -156,3 +155,39 @@ def statically_parse_adapter_dispatch(func_call, ctx, db_wrapper):
             possible_macro_calls.append(f"{package_name}.{func_name}")
 
     return possible_macro_calls
+
+
+def statically_parse_ref_or_source(expression: str) -> Union[RefArgs, List[str]]:
+    """
+    Returns a RefArgs or List[str] object, corresponding to ref or source respectively, given an input jinja expression.
+
+    input: str representing how input node is referenced in tested model sql
+        * examples:
+        - "ref('my_model_a')"
+        - "ref('my_model_a', version=3)"
+        - "ref('package', 'my_model_a', version=3)"
+        - "source('my_source_schema', 'my_source_name')"
+
+    If input is not a well-formed jinja ref or source expression, a ParsingError is raised.
+    """
+    ref_or_source: Union[RefArgs, List[str]]
+
+    try:
+        statically_parsed = py_extract_from_source(f"{{{{ {expression} }}}}")
+    except ExtractionError:
+        raise ParsingError(f"Invalid jinja expression: {expression}")
+
+    if statically_parsed.get("refs"):
+        raw_ref = list(statically_parsed["refs"])[0]
+        ref_or_source = RefArgs(
+            package=raw_ref.get("package"),
+            name=raw_ref.get("name"),
+            version=raw_ref.get("version"),
+        )
+    elif statically_parsed.get("sources"):
+        source_name, source_table_name = list(statically_parsed["sources"])[0]
+        ref_or_source = [source_name, source_table_name]
+    else:
+        raise ParsingError(f"Invalid ref or source expression: {expression}")
+
+    return ref_or_source
